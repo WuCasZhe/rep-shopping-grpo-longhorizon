@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import ast
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import textwrap
+from types import SimpleNamespace
 from pathlib import Path
 
 import numpy as np
@@ -40,6 +44,42 @@ def original_source() -> Path:
 
 
 class VerlPatchScriptTest(unittest.TestCase):
+    def test_skipped_windows_keep_same_policy_groups_until_bounded_stop(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "ray_trainer.py"
+            shutil.copy2(original_source(), target)
+            result = self.run_script(target)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            source = target.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        block = next(n for n in ast.walk(tree) if isinstance(n, ast.If)
+                     and ast.unparse(n.test) == "dynamic_accepted_prompts < dynamic_target_prompts")
+        code = compile("for _ in range(1):\n" + textwrap.indent(ast.unparse(block), "    "), "<skip-window>", "exec")
+        cached = object()
+        scope = {name: 0 for name in (
+            "dynamic_skipped_updates", "dynamic_consecutive_skips", "dynamic_all_equal_groups",
+            "dynamic_all_zero_utility_groups", "dynamic_no_purchase_success_groups",
+            "dynamic_all_purchase_success_groups", "dynamic_sampling_invalid_groups",
+        )}
+        scope.update(dynamic_accepted_batches=[cached], dynamic_accepted_prompts=1,
+                     dynamic_target_prompts=2, dynamic_max_gen_batches=3,
+                     dynamic_max_consecutive_skips=15, dynamic_generated_groups=6,
+                     dynamic_generated_trajectories=24, curr_step_profile=False,
+                     self=SimpleNamespace(global_steps=7), current_step=8,
+                     logger=SimpleNamespace(log=lambda **kw: None), diagnostics_path=None,
+                     append_training_diagnostic=lambda *a, **kw: None, json=json,
+                     print=lambda *a, **kw: None)
+        for generation in range(1, 45):
+            scope["dynamic_num_gen_batches"] = generation
+            exec(code, scope)
+            self.assertEqual(scope["dynamic_accepted_batches"], [cached])
+            self.assertEqual(scope["dynamic_accepted_prompts"], 1)
+            self.assertEqual(scope["dynamic_consecutive_skips"], generation // 3)
+            self.assertEqual(scope["self"].global_steps, 7)
+        scope["dynamic_num_gen_batches"] = 45
+        with self.assertRaisesRegex(RuntimeError, "max_consecutive_skipped_updates=15"):
+            exec(code, scope)
+
     def run_script(self, target: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(SCRIPT), "--target", str(target), *args],
@@ -137,7 +177,7 @@ class VerlPatchScriptTest(unittest.TestCase):
                 "logger.log(data=skipped_metrics, step=self.global_steps)",
                 fit_source,
             )
-            self.assertIn(
+            self.assertNotIn(
                 "dynamic_accepted_batches = []",
                 fit_source[skipped:ready],
             )

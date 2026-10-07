@@ -41,6 +41,9 @@ is retained in `data/sft/metadata.json` as provenance.
 
 ## Run a new collection
 
+New collections default to DeepSeek V4.1 Flash (`deepseek-flash`). The frozen
+dataset above retains the original Teacher model in its provenance.
+
 Start ShopSimulator, configure an OpenAI-compatible Teacher endpoint, and run:
 
 ```bash
@@ -50,7 +53,7 @@ export OPENAI_API_KEY=your-key
 python scripts/collect_sft_data.py \
   --tasks data/grpo/train.jsonl \
   --output-dir outputs/sft-collection \
-  --model deepseek-v4-flash \
+  --model deepseek-flash \
   --target-accepted 1000 \
   --workers 4
 ```

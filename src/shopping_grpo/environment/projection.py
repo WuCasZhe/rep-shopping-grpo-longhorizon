@@ -79,10 +79,17 @@ def project_observation(
     raw_buttons = clickable_buttons(observation)
     raw_asins = product_ids(observation)
     page_type = _page_type(observation)
+    if page_type == "search_results" and len(raw_asins) > search_top_k:
+        raise ObservationProjectionError(
+            f"raw search page has {len(raw_asins)} products, above configured "
+            f"page capacity {search_top_k}"
+        )
     effective_budget = {
         "search_results": token_budget,
         "product_detail": detail_token_budget,
     }.get(page_type, generic_token_budget)
+    if page_type == "information_subpage" and observation.startswith("[SHOPPING_OBSERVATION_V2]\n"):
+        effective_budget = detail_token_budget
     # 短 observation 原样保留；只有超预算时才压缩，避免不必要地改变模型输入。
     if raw_tokens <= effective_budget:
         visible = observation
@@ -95,6 +102,12 @@ def project_observation(
                 count_tokens=count_tokens,
                 token_budget=effective_budget,
                 search_top_k=search_top_k,
+            )
+        elif "[SHOPPING_OBSERVATION_V2]" in observation and page_type in {
+            "product_detail", "information_subpage"
+        }:
+            visible = _project_structured_product(
+                observation, count_tokens=count_tokens, token_budget=effective_budget
             )
         else:
             visible = _project_generic_page(
@@ -152,6 +165,10 @@ def project_observation(
 
 
 def _page_type(observation):
+    if observation.startswith("[SHOPPING_OBSERVATION_V2]\n"):
+        match = re.search(r"^page_type: (\w+)$", observation, re.MULTILINE)
+        if match:
+            return match.group(1)
     if (
         "[SHOPPING_OBSERVATION_V2]" in observation
         and "page_type: search_results" in observation
@@ -292,10 +309,12 @@ def _project_structured_search_results(
         compacted = []
         truncated = False
         for rank, asin, payload in product_lines:
-            fields = payload.split("|")
-            compacted_fields = [
-                _compact_title(field, character_limit) for field in fields
-            ]
+            fields = payload.split("|", 4)
+            # Keep prices exact. Other search fields are explicitly marked
+            # snippets; full specification/variant state remains on detail pages.
+            compacted_fields = [fields[0], *(
+                _compact_title(field, character_limit) for field in fields[1:]
+            )]
             truncated = truncated or compacted_fields != fields
             compacted.append("|".join((rank, asin, *compacted_fields)))
         rendered = [*header_lines, *compacted]
@@ -338,6 +357,35 @@ def _compact_title(title, character_limit):
     head_length = max(1, (character_limit - 1) * 2 // 3)
     tail_length = max(1, character_limit - 1 - head_length)
     return title[:head_length] + "…" + title[-tail_length:]
+
+
+def _project_structured_product(observation, *, count_tokens, token_budget):
+    """Keep page identity, variant state and matching evidence as whole fields."""
+    body, footer = _split_footer(observation)
+    lines = body.splitlines()
+    footer_lines = _footer_lines(footer, clickable_buttons(observation))
+
+    def render(limit):
+        rendered = []
+        for line in lines:
+            key, separator, value = line.partition(": ")
+            if key in {"title", "content"} and separator:
+                line = key + separator + _compact_title(value, limit)
+            rendered.append(line)
+        return "\n".join([*rendered, TRUNCATION_MARKER, "", *footer_lines])
+
+    low, high, best = 0, len(body), None
+    while low <= high:
+        middle = (low + high) // 2
+        candidate = render(middle)
+        if int(count_tokens(candidate)) <= token_budget:
+            best = candidate
+            low = middle + 1
+        else:
+            high = middle - 1
+    if best is None:
+        raise ObservationProjectionError("critical product state exceeds the observation token budget")
+    return best
 
 
 def _project_generic_page(observation, *, count_tokens, token_budget):

@@ -45,7 +45,7 @@ class ShopToolsTest(unittest.TestCase):
         self.assertIn("不得选择导航按钮", schemas["select_option"]["description"])
         self.assertIn("影响可购买 variant 的必要规格轴", schemas["select_option"]["description"])
         self.assertIn("完整 variant 的实际价格", schemas["select_option"]["description"])
-        self.assertIn("必须传 {}", schemas["view_description"]["description"])
+        self.assertIn("不要提供任何参数", schemas["view_description"]["description"])
         self.assertIn("Buy Now", schemas["buy_now"]["description"])
         self.assertIn("品类正确", schemas["buy_now"]["description"])
         self.assertIn("品牌、型号与核心功能、规格属性", schemas["buy_now"]["description"])

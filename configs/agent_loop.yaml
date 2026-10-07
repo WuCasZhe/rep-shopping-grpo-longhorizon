@@ -9,10 +9,10 @@
   reward_length_max_penalty: ${oc.env:SHOPPING_MAX_LENGTH_PENALTY,0.15}
   required_environment_version: shopsimulator-environment-v2.1
   reward_mode: constraint_aware
-  context_window_tokens: 24576
+  context_window_tokens: 16384
   context_generation_reserve_tokens: 512
   context_safety_margin_tokens: 512
-  context_input_budget_tokens: 16384
+  context_input_budget_tokens: 15360
   context_preserve_recent_groups: 1
   context_compaction_enable: false
   observation_token_budget: 1536

@@ -13,8 +13,9 @@ from http.client import RemoteDisconnected
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-DEFAULT_FLASH_MODEL = "deepseek-v4-flash"
-DEFAULT_PRO_MODEL = "deepseek-v4-pro"
+DEFAULT_FLASH_MODEL = "deepseek-flash"
+# Rubric curation and trajectory judging use the same V4.1 Flash endpoint.
+DEFAULT_JUDGE_MODEL = DEFAULT_FLASH_MODEL
 RETRYABLE_HTTP_STATUSES = frozenset(
     {408, 409, 429, 500, 502, 503, 504}
 )
@@ -22,6 +23,48 @@ RETRYABLE_HTTP_STATUSES = frozenset(
 
 class ModelResponseError(ValueError):
     """Raised when a provider response cannot satisfy the JSON contract."""
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ModelResponseError("provider JSON contains duplicate object keys")
+        result[key] = value
+    return result
+
+
+def _reject_constant(value):
+    raise ModelResponseError("provider JSON contains a non-finite number")
+
+
+def _parse_json_response(response: object) -> dict:
+    if not isinstance(response, Mapping):
+        raise ModelResponseError("provider response must be an object")
+    choices = response.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ModelResponseError("provider response is missing choices")
+    first = choices[0]
+    if isinstance(first, Mapping) and first.get("finish_reason") == "length":
+        raise ModelResponseError("provider response was truncated (finish_reason=length)")
+    message = first.get("message") if isinstance(first, Mapping) else None
+    content = message.get("content") if isinstance(message, Mapping) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ModelResponseError(
+            "provider response message.content must be non-empty JSON text"
+        )
+    try:
+        result = json.loads(content, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    except json.JSONDecodeError as exc:
+        reason = (
+            " (finish_reason=length)" if first.get("finish_reason") == "length" else ""
+        )
+        raise ModelResponseError(
+            "provider response content is not strict JSON" + reason
+        ) from exc
+    if not isinstance(result, dict):
+        raise ModelResponseError("provider response JSON root must be an object")
+    return result
 
 
 def _retry_after_seconds(
@@ -59,7 +102,7 @@ class OpenAIJSONClient:
         timeout: float = 120,
         retries: int = 2,
         retry_delay_seconds: float = 2,
-        response_format_json: bool = False,
+        response_format_json: bool = True,
         thinking: bool = False,
         reasoning_effort: str = "high",
         transport: Callable | None = None,
@@ -94,7 +137,7 @@ class OpenAIJSONClient:
             "top_p": 1.0,
             "max_tokens": self.max_tokens,
         }
-        if self.model.casefold().startswith("deepseek-v4"):
+        if self.model.casefold().startswith("deepseek-"):
             if self.thinking:
                 payload["thinking"] = {"type": "enabled"}
                 payload["reasoning_effort"] = self.reasoning_effort
@@ -106,7 +149,7 @@ class OpenAIJSONClient:
             payload["response_format"] = {"type": "json_object"}
         return payload
 
-    def complete_json(self, messages: list[Mapping]) -> dict:
+    def complete_json(self, messages: list[Mapping], *, validator: Callable | None = None) -> dict:
         """Return parsed JSON plus non-secret request metadata."""
 
         if not isinstance(messages, list) or not messages:
@@ -122,6 +165,7 @@ class OpenAIJSONClient:
         response = None
         attempts = 0
         retry_http_statuses = []
+        retry_response_errors = []
         retry_wait_seconds = 0.0
         for attempt in range(self.retries + 1):
             attempts = attempt + 1
@@ -142,6 +186,12 @@ class OpenAIJSONClient:
                     )
                     with urlopen(request, timeout=self.timeout) as raw:
                         response = json.loads(raw.read().decode("utf-8"))
+                result = _parse_json_response(response)
+                if validator is not None:
+                    try:
+                        result = validator(result)
+                    except (ValueError, TypeError, KeyError) as exc:
+                        raise ModelResponseError("provider JSON failed schema validation") from exc
                 break
             except HTTPError as exc:
                 status = int(exc.code)
@@ -157,6 +207,21 @@ class OpenAIJSONClient:
                 retry_wait_seconds += delay
                 if delay > 0:
                     time.sleep(delay)
+            except (ModelResponseError, json.JSONDecodeError) as exc:
+                if attempt >= self.retries:
+                    raise
+                retry_response_errors.append(
+                    str(exc) if isinstance(exc, ModelResponseError)
+                    else "provider HTTP response is not strict JSON"
+                )
+                if "finish_reason=length" in str(exc):
+                    # A repeated request with the same exhausted output budget
+                    # cannot reliably recover. Bound growth to twice the original.
+                    payload["max_tokens"] = min(payload["max_tokens"] * 2, self.max_tokens * 2)
+                delay = self.retry_delay_seconds * (2**attempt)
+                retry_wait_seconds += delay
+                if delay > 0:
+                    time.sleep(delay)
             except (RemoteDisconnected, TimeoutError, URLError):
                 if attempt >= self.retries:
                     raise
@@ -165,28 +230,6 @@ class OpenAIJSONClient:
                 if delay > 0:
                     time.sleep(delay)
         latency = time.monotonic() - started
-        if not isinstance(response, Mapping):
-            raise ModelResponseError("provider response must be an object")
-        choices = response.get("choices")
-        if not isinstance(choices, list) or not choices:
-            raise ModelResponseError("provider response is missing choices")
-        first = choices[0]
-        message = first.get("message") if isinstance(first, Mapping) else None
-        content = message.get("content") if isinstance(message, Mapping) else None
-        if not isinstance(content, str) or not content.strip():
-            raise ModelResponseError(
-                "provider response message.content must be non-empty JSON text"
-            )
-        try:
-            result = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise ModelResponseError(
-                "provider response content is not strict JSON"
-            ) from exc
-        if not isinstance(result, dict):
-            raise ModelResponseError(
-                "provider response JSON root must be an object"
-            )
         usage = response.get("usage")
         usage = deepcopy(dict(usage)) if isinstance(usage, Mapping) else {}
         return {
@@ -195,12 +238,16 @@ class OpenAIJSONClient:
                 "provider_request_id": response.get("id"),
                 "provider_model": response.get("model") or self.model,
                 "requested_model": self.model,
+                "requested_max_tokens": payload["max_tokens"],
+                "requested_response_format_json": self.response_format_json,
+                "finish_reason": response["choices"][0].get("finish_reason"),
                 "requested_thinking": self.thinking,
                 "requested_reasoning_effort": (
                     self.reasoning_effort if self.thinking else None
                 ),
                 "attempts": attempts,
                 "retry_http_statuses": retry_http_statuses,
+                "retry_response_errors": retry_response_errors,
                 "retry_wait_seconds": retry_wait_seconds,
                 "latency_seconds": latency,
                 "usage": usage,
@@ -214,7 +261,7 @@ def client_from_environment(
     max_tokens: int,
     timeout: float = 120,
     retries: int = 2,
-    response_format_json: bool = False,
+    response_format_json: bool = True,
     thinking: bool = False,
     reasoning_effort: str = "high",
 ) -> OpenAIJSONClient:

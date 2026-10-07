@@ -24,8 +24,11 @@ sft = [
   "swanlab>=0.8,<1",
 ]
 sft-accelerated = [
-  "bitsandbytes>=0.45,<1",
-  "liger-kernel>=0.6,<1",
+  "liger-kernel==0.8.4",
+  "flash-linear-attention==0.5.2",
+]
+sft-quantized = [
+  "bitsandbytes==0.50.2",
 ]
 grpo = [
   "verl==0.8.0",

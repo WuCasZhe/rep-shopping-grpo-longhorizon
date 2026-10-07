@@ -22,9 +22,9 @@ EXPECTED_VERSIONS = {
     "swanlab": "0.9.1",
 }
 EXPECTED_TRANSFORMERS_REVISION = "7ea2320c76117e6742364808a666ef6f2fb40a67"
-PATCH_MARKER = "SHOPPING_GRPO_DYNAMIC_SAMPLING_PATCH_V3"
-MAX_SAFE_RESPONSE_LENGTH = 20480
-MAX_SAFE_SEQUENCE_LENGTH = 24576
+PATCH_MARKER = "SHOPPING_GRPO_DYNAMIC_SAMPLING_PATCH_V4"
+MAX_SAFE_RESPONSE_LENGTH = 12288
+MAX_SAFE_SEQUENCE_LENGTH = 16384
 CURRENT_RUNTIME_FILES = {
     "observation.py": "environments/ShopSimulator/shop_env/web_agent_site/engine/observation.py",
     "pack_api.py": "environments/ShopSimulator/shop_env/shop_env/pack_api.py",
@@ -134,7 +134,9 @@ def compose_runtime_config(overrides):
         raise SystemExit(f"cannot parse GRPO config before preflight: {exc}") from exc
 
     GlobalHydra.instance().clear()
-    config_dir = Path(__file__).resolve().parents[1] / "configs"
+    config_dir = Path(os.environ.get(
+        "GRPO_CONFIG_DIR", Path(__file__).resolve().parents[1] / "configs"
+    )).resolve()
     config_name = os.environ.get("GRPO_CONFIG_NAME", "grpo")
     with initialize_config_dir(version_base=None, config_dir=str(config_dir)):
         return compose(config_name=config_name, overrides=list(overrides))
@@ -290,12 +292,8 @@ def validate_swanlab_tracking(config):
             "Reward v3 GRPO forbids W&B logger backends: "
             + ", ".join(sorted(forbidden))
         )
-    if os.environ.get("SWANLAB_MODE") != "online":
-        raise SystemExit("Reward v3 GRPO requires SWANLAB_MODE=online")
-    if not os.environ.get("SWANLAB_API_KEY"):
-        raise SystemExit(
-            "Reward v3 GRPO requires SWANLAB_API_KEY in the launching environment"
-        )
+    if os.environ.get("SWANLAB_MODE") != "local":
+        raise SystemExit("GRPO SwanLab tracking must use SWANLAB_MODE=local")
     log_dir = os.environ.get("SWANLAB_LOG_DIR")
     if not log_dir:
         raise SystemExit("Reward v3 GRPO requires SWANLAB_LOG_DIR")
@@ -303,13 +301,12 @@ def validate_swanlab_tracking(config):
     if str(config.trainer.get("project_name")) != "shopping-grpo":
         raise SystemExit("Reward v3 GRPO SwanLab project must be shopping-grpo")
     print(
-        "SwanLab online preflight passed: "
+        "SwanLab local preflight passed: "
         + json.dumps(
             {
-                "api_key": "present",
                 "logger": logger_backends,
                 "log_dir": str(resolved_log_dir),
-                "mode": "online",
+                "mode": "local",
                 "project": str(config.trainer.project_name),
                 "run_name": str(config.trainer.experiment_name),
             },
@@ -336,6 +333,8 @@ def validate_training_memory_budget(config):
     rollout = config.actor_rollout_ref.rollout
     reference = config.actor_rollout_ref.ref
 
+    if prompt_length <= 0 or response_length <= 0:
+        raise SystemExit("GRPO prompt and response budgets must be positive")
     if response_length > MAX_SAFE_RESPONSE_LENGTH:
         raise SystemExit(
             "unsafe GRPO response budget: "
@@ -356,12 +355,18 @@ def validate_training_memory_budget(config):
         ),
         ("actor.ppo_max_token_len_per_gpu", int(actor.ppo_max_token_len_per_gpu)),
         ("ref.log_prob_max_token_len_per_gpu", int(reference.log_prob_max_token_len_per_gpu)),
+        ("shopping_trace.max_sequence_length", int(config.shopping_trace.max_sequence_length)),
     ):
         if value != MAX_SAFE_SEQUENCE_LENGTH:
             raise SystemExit(
                 f"unsafe or inconsistent GRPO memory budget: {name} must equal "
                 f"{MAX_SAFE_SEQUENCE_LENGTH}, got {value}"
             )
+    if bool(actor.calculate_entropy) or float(actor.entropy_coeff) != 0.0:
+        raise SystemExit(
+            "16K GRPO memory protection requires actor.calculate_entropy=false "
+            "and actor.entropy_coeff=0"
+        )
     if bool(actor.use_dynamic_bsz):
         raise SystemExit(
             "actor.use_dynamic_bsz must be false so configured PPO micro batches are enforced"
@@ -401,6 +406,7 @@ def validate_training_memory_budget(config):
                 "actor_micro_batch_size_per_gpu": actor_micro_batch_size,
                 "actor_gradient_accumulation_steps": gradient_accumulation_steps,
                 "actor_dynamic_batch": False,
+                "actor_calculate_entropy": False,
                 "rollout_log_prob_micro_batch_size_per_gpu": 1,
                 "rollout_log_prob_dynamic_batch": False,
                 "reference_micro_batch_size_per_gpu": 1,
@@ -409,6 +415,30 @@ def validate_training_memory_budget(config):
             sort_keys=True,
         )
     )
+
+
+def validate_agent_context_budget(config, agent_configs):
+    """Reject an agent window that disagrees with the actor/rollout budget."""
+    agents = [item for item in agent_configs if item.get("name") == "shopping_tool_agent"]
+    if len(agents) != 1:
+        raise SystemExit("agent loop config must define one shopping_tool_agent")
+    agent = agents[0]
+    window = int(agent.get("context_window_tokens", 0))
+    reserve = int(agent.get("context_generation_reserve_tokens", 0))
+    margin = int(agent.get("context_safety_margin_tokens", 0))
+    input_budget = int(agent.get("context_input_budget_tokens", 0))
+    if window != int(config.actor_rollout_ref.rollout.max_model_len):
+        raise SystemExit("agent context_window_tokens must match rollout.max_model_len")
+    if min(reserve, margin, input_budget) <= 0 or input_budget + reserve + margin > window:
+        raise SystemExit("agent input budget plus generation reserve and safety margin must fit context window")
+    if int(config.data.max_prompt_length) > input_budget:
+        raise SystemExit("max_prompt_length must fit agent context_input_budget_tokens")
+    print("GRPO agent context budget preflight passed: " + json.dumps({
+        "context_window_tokens": window,
+        "context_input_budget_tokens": input_budget,
+        "context_generation_reserve_tokens": reserve,
+        "context_safety_margin_tokens": margin,
+    }, sort_keys=True))
 
 
 def main():
@@ -422,6 +452,12 @@ def main():
     if missing:
         raise SystemExit("missing GRPO parquet file(s): " + ", ".join(missing))
     validate_training_memory_budget(config)
+    from omegaconf import OmegaConf
+
+    validate_agent_context_budget(
+        config,
+        OmegaConf.load(config.actor_rollout_ref.rollout.agent.agent_loop_config_path),
+    )
     validate_trace(config)
 
     if sys.version_info[:2] != (3, 12):

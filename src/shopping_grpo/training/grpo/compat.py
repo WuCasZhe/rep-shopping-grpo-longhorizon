@@ -1,5 +1,43 @@
 """veRL 0.8 的窄范围运行时兼容。"""
 
+from functools import wraps
+import logging
+
+
+def _with_dataloader_cleanup(fit):
+    """Reap StatefulDataLoader workers before Ray tears down the trainer actor."""
+    @wraps(fit)
+    def fit_with_cleanup(self, *args, **kwargs):
+        try:
+            return fit(self, *args, **kwargs)
+        finally:
+            # veRL can return at a step limit with an unfinished loader iterator.
+            # torchdata retains that iterator, so its destructor has not run when
+            # Ray kills the actor's children. Use the pinned loader's teardown.
+            for name in ("train_dataloader", "val_dataloader"):
+                loader = getattr(self, name, None)
+                iterator = getattr(loader, "_iterator", None)
+                shutdown = getattr(iterator, "_shutdown_workers", None)
+                if callable(shutdown):
+                    try:
+                        shutdown()
+                    except Exception:
+                        # Preserve an original training failure and still attempt
+                        # to release the other loader.
+                        logging.getLogger(__name__).exception(
+                            "Failed to shut down %s workers", name
+                        )
+
+    fit_with_cleanup._shopping_dataloader_cleanup = True
+    return fit_with_cleanup
+
+
+def _install_dataloader_cleanup():
+    from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+
+    if not getattr(RayPPOTrainer.fit, "_shopping_dataloader_cleanup", False):
+        RayPPOTrainer.fit = _with_dataloader_cleanup(RayPPOTrainer.fit)
+
 
 def _install_trace_actor_update():
     """Score private gold targets before the existing veRL actor update."""
@@ -69,3 +107,4 @@ def install_torch_padding_fallback():
     # ponytail: veRL 0.8 在 CUDA 上硬导入 FA2；上游提供 torch fallback 后删除此 hook。
     attention_utils._get_attention_functions = lambda: functions
     _install_trace_actor_update()
+    _install_dataloader_cleanup()

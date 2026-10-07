@@ -11,10 +11,7 @@ import json
 from verl.experimental.agent_loop.tool_agent_loop import AgentState, ToolAgentLoop
 
 from shopping_grpo.environment.context import ContextBudgetError, compact_token_trajectory
-from shopping_grpo.environment.projection import (
-    ObservationProjectionError,
-    project_observation,
-)
+from shopping_grpo.environment.projection import project_observation
 from shopping_grpo.training.grpo.adapter.runtime import (
     apply_reward_length_shaping,
     current_runtime_state,
@@ -24,6 +21,8 @@ from shopping_grpo.training.grpo.adapter.runtime import (
     terminal_reward,
 )
 from shopping_grpo.training.grpo.adapter.session import ShopSimulatorSession
+from shopping_grpo.training.grpo.adapter.tool_parser import ShoppingToolParser, ToolCallParseError
+from shopping_grpo.training.grpo.adapter.format_prompt import qwen_tool_messages, parse_error_feedback
 
 
 class ShoppingToolAgentLoop(ToolAgentLoop):
@@ -37,10 +36,10 @@ class ShoppingToolAgentLoop(ToolAgentLoop):
         max_steps=35,
         required_environment_version=None,
         reward_mode="native",
-        context_window_tokens=24576,
+        context_window_tokens=16384,
         context_generation_reserve_tokens=512,
         context_safety_margin_tokens=512,
-        context_input_budget_tokens=16384,
+        context_input_budget_tokens=15360,
         context_preserve_recent_groups=1,
         context_compaction_enable=False,
         observation_token_budget=1536,
@@ -55,6 +54,8 @@ class ShoppingToolAgentLoop(ToolAgentLoop):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        if self.tool_parser_name == "qwen3_coder":
+            self.tool_parser = ShoppingToolParser(self.tokenizer, self.tool_parser)
         self.base_url = base_url
         self.timeout = int(timeout)
         self.max_steps = int(max_steps)
@@ -108,6 +109,11 @@ class ShoppingToolAgentLoop(ToolAgentLoop):
             raise ValueError("reward length penalties must be non-negative")
         self.env_factory = env_factory
 
+    async def _handle_pending_state(self, agent_data, sampling_params):
+        if self.tool_parser_name == "qwen3_coder":
+            agent_data.messages = qwen_tool_messages(agent_data.messages)
+        return await super()._handle_pending_state(agent_data, sampling_params)
+
     async def _handle_generating_state(
         self,
         agent_data,
@@ -146,9 +152,7 @@ class ShoppingToolAgentLoop(ToolAgentLoop):
         if (
             not self.context_compaction_enable
             and current_input_tokens
-            > self.context_window_tokens
-            - self.context_generation_reserve_tokens
-            - self.context_safety_margin_tokens
+            > self.context_input_budget
         ):
             if runtime_state is not None:
                 runtime_state["terminate"] = True
@@ -172,16 +176,56 @@ class ShoppingToolAgentLoop(ToolAgentLoop):
                 runtime_state["context_compactions"] += 1
                 runtime_state["context_tokens_removed"] += stats.removed_tokens
         bounded_sampling_params = dict(sampling_params)
-        if "max_tokens" in bounded_sampling_params:
-            bounded_sampling_params["max_tokens"] = min(
-                int(bounded_sampling_params["max_tokens"]),
-                self.context_generation_reserve_tokens,
-            )
-        return await super()._handle_generating_state(
-            agent_data,
-            bounded_sampling_params,
-            ignore_termination=ignore_termination,
+        bounded_sampling_params["max_tokens"] = min(
+            int(bounded_sampling_params.get("max_tokens", self.context_generation_reserve_tokens)),
+            self.context_generation_reserve_tokens,
         )
+        try:
+            next_state = await super()._handle_generating_state(
+                agent_data,
+                bounded_sampling_params,
+                ignore_termination=ignore_termination,
+            )
+        except ToolCallParseError as exc:
+            if runtime_state is None:
+                raise
+            runtime_state["tool_parse_errors"] += 1
+            runtime_state["consecutive_tool_parse_errors"] += 1
+            reason = str(exc)
+            counts = runtime_state["tool_parse_error_reasons"]
+            counts[reason] = counts.get(reason, 0) + 1
+            runtime_state["tool_parse_error_details"].append({
+                "reason": reason,
+                "generated_tokens": len(agent_data.response_ids),
+                "generation_limit": bounded_sampling_params["max_tokens"],
+                "at_generation_limit": len(agent_data.response_ids) >= bounded_sampling_params["max_tokens"],
+                "response_tail": self.tokenizer.decode(agent_data.response_ids)[-1000:],
+            })
+            agent_data.tool_calls = []
+            if runtime_state["consecutive_tool_parse_errors"] >= 3:
+                runtime_state["terminate"] = True
+                runtime_state["error"] = "tool_call_parse_error_limit"
+                runtime_state["termination_reason"] = runtime_state["error"]
+                return AgentState.TERMINATED
+            # Preserve the sampled actor tokens and log-probabilities. Feedback
+            # is observation text, so it must never receive policy loss.
+            feedback = {"role": "tool", "content": parse_error_feedback(exc)}
+            ids = await self.apply_chat_template([feedback], remove_system_prompt=True)
+            if len(agent_data.response_mask) + len(ids) >= self.response_length:
+                runtime_state["error"] = "tool_call_parse_error_budget"
+                runtime_state["termination_reason"] = runtime_state["error"]
+                runtime_state["terminate"] = True
+                return AgentState.TERMINATED
+            agent_data.messages.append(feedback)
+            agent_data.prompt_ids += ids
+            agent_data.response_mask += [0] * len(ids)
+            if agent_data.response_logprobs:
+                agent_data.response_logprobs += [0.0] * len(ids)
+            agent_data.user_turns += 1
+            return AgentState.GENERATING
+        if runtime_state is not None and next_state == AgentState.PROCESSING_TOOLS:
+            runtime_state["consecutive_tool_parse_errors"] = 0
+        return next_state
 
     async def _call_tool(self, tool_call, tools_kwargs, agent_data):
         """把工具适配器拿到的原始 observation 压缩成模型真正可见的版本。"""
@@ -212,10 +256,6 @@ class ShoppingToolAgentLoop(ToolAgentLoop):
                 generic_token_budget=self.observation_generic_token_budget,
                 search_top_k=self.observation_search_top_k,
             )
-            if len(visible_observation) > self.max_tool_response_length:
-                raise ObservationProjectionError(
-                    "projected observation exceeds veRL character fallback limit"
-                )
         except Exception as exc:
             state["terminate"] = True
             state["termination_reason"] = "observation_projection_failed"
@@ -231,6 +271,10 @@ class ShoppingToolAgentLoop(ToolAgentLoop):
         record_observation_projection(state, projection_meta)
         if isinstance(step, dict):
             step["projection"] = projection_meta
+        # The parent has already applied veRL's character-based fallback. Replace
+        # it with the projection of the saved raw observation: project_observation
+        # enforces tokenizer-based budgets and preserves all actionable targets.
+        # Do not reject or slice this result using the parent's character limit.
         response.text = visible_observation
         return response, reward, step
 
@@ -289,6 +333,9 @@ class ShoppingToolAgentLoop(ToolAgentLoop):
                 "done": bool(state["done"]),
                 "termination_reason": state["termination_reason"],
                 "error": state["error"],
+                "tool_parse_errors": state["tool_parse_errors"],
+                "tool_parse_error_reasons": dict(state["tool_parse_error_reasons"]),
+                "tool_parse_error_details": list(state["tool_parse_error_details"]),
                 "infrastructure_invalid": bool(state["infrastructure_invalid"]),
                 "action_attempts": int(state["action_attempt_count"]),
                 "repeat_actions": int(state["repeat_action_count"]),

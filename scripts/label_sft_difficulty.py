@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Label cleaned SFT trajectories with DeepSeek-v4 difficulty judgments."""
+"""Label cleaned SFT trajectories with DeepSeek V4.1 Flash difficulty judgments."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from shopping_grpo.evaluation.model_client import client_from_environment
+from shopping_grpo.evaluation.model_client import DEFAULT_FLASH_MODEL, client_from_environment
 
 
 SYSTEM_PROMPT = """You curate training data for a shopping web agent.
@@ -145,7 +145,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--model", default="deepseek-v4-flash")
+    parser.add_argument("--model", default=DEFAULT_FLASH_MODEL)
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=5)
     parser.add_argument("--max-batch-chars", type=int, default=60000)
