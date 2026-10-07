@@ -102,14 +102,17 @@ small SHA-256-checked patch. See the [GRPO guide](docs/grpo.md) for details.
 ### How evaluation works
 
 Formal evaluation combines deterministic checks with two LLM-as-Judge roles.
-DeepSeek V4 Flash curates a frozen requirement Rubric from code-generated
+Both LLM roles use the official API model ID `deepseek-flash` (DeepSeek V4.1 Flash).
+Their prompts and input isolation remain separate.
+
+DeepSeek V4.1 Flash curates a frozen requirement Rubric from code-generated
 category, brand, model, function, option and price candidates. It may select and
 deduplicate candidates, but cannot invent fields or expected values. The same
 Rubric is shared by Baseline, SFT and GRPO.
 
 After each Actor completes a rollout, code normalizes events and computes
 Reward, legality, repetition, context and infrastructure checks. Valid
-trajectories then go to DeepSeek V4 Pro with the original Query, frozen Rubric,
+trajectories then go to DeepSeek V4.1 Flash with the original Query, frozen Rubric,
 Actor-visible trajectory, neutral terminal flags and allowlisted behavioral
 metrics. Reward values, hidden Gold fields, raw observations, success labels and
 other models' results are excluded.
@@ -118,19 +121,19 @@ other models' results are excluded.
 flowchart TD
     A[Benchmark task ID] --> B[Private TaskFacts]
     B --> C[Code-generated candidates]
-    C --> D[V4 Flash frozen Rubric]
+    C --> D[V4.1 Flash frozen Rubric]
     A --> E[Actor rollout]
     E --> F[Normalization and hard checks]
     F -->|valid| G[Judge-safe payload]
     D --> G
-    G --> H[V4 Pro requirement and five-dimension judgment]
+    G --> H[V4.1 Flash requirement and five-dimension judgment]
     F -->|infrastructure invalid| I[not_judged]
     H --> J[Four-panel aggregation]
     I --> J
     J --> K[Paired Baseline / SFT / GRPO comparison]
 ```
 
-V4 Pro scores Search Strategy, Candidate Utilization, Evidence Verification,
+V4.1 Flash scores Search Strategy, Candidate Utilization, Evidence Verification,
 Decision Quality and Termination Efficiency independently on a 0/1/2 scale. It
 also assesses each Rubric and assigns errors from a frozen taxonomy. The final
 report keeps Reward/terminal, requirement Rubric, trajectory quality and
@@ -384,7 +387,7 @@ bash scripts/grpo.sh --logger swanlab
 To further improve planning, tool use, and constraint satisfaction on long-horizon shopping tasks, the project will pursue the following directions:
 
 - **Scale up the model**: Train a larger `Qwen3.5-9B` model on top of the current experiments and evaluate how model scale affects long-horizon stability and end-task success rate.
-- **Upgrade the Teacher models and trajectory collection**: Move beyond a single Teacher model by using a mixture of `Qwen3.8 Flash`, `GLM-5.3-Flash`, and `DeepSeek-V4-Flash-0731` to collect trajectories, improving the coverage, behavioral diversity, and quality ceiling of the training data.
+- **Upgrade the Teacher models and trajectory collection**: Move beyond a single Teacher model by using a mixture of `Qwen3.8 Flash`, `GLM-5.3-Flash`, and `DeepSeek-V4.1-Flash` to collect trajectories, improving the coverage, behavioral diversity, and quality ceiling of the training data.
 - **Expand the independent validation set**: Increase the number and variety of validation tasks to cover more product categories, constraint combinations, and interaction paths, strengthening the statistical reliability and generalization assessment of the results.
 - **Introduce finer-grained credit assignment**: Address sparse terminal rewards and the difficulty of distinguishing individual action contributions in long-horizon interactions by providing more effective training signals for important intermediate steps.
 

@@ -66,7 +66,7 @@ def build_stage_commands(
             "--learning-rate",
             str(stage_config["learning_rate"]),
             "--max-length",
-            "24576",
+            "16384",
             "--dtype",
             "bf16",
             "--attention-implementation",

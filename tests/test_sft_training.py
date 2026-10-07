@@ -71,6 +71,21 @@ class ProcessorTemplate:
 
 
 class SftTrainingTest(unittest.TestCase):
+    def test_recovery_prefix_is_context_only(self):
+        messages = [
+            {"role": "user", "content": "buy blue"},
+            {"role": "assistant", "content": "WRONG_RED", "trainable": False},
+            {"role": "tool", "content": "selected red; blue available"},
+            {"role": "assistant", "content": "CORRECT_BLUE"},
+        ]
+        example = build_supervised_example(messages, [], CharacterTokenizer())
+        labeled = CharacterTokenizer.decode(t for t in example["labels"] if t != IGNORE_INDEX)
+        self.assertNotIn("WRONG_RED", labeled)
+        self.assertIn("CORRECT_BLUE", labeled)
+        self.assertIn("WRONG_RED", CharacterTokenizer.decode(example["input_ids"]))
+        self.assertNotIn("trainable", normalize_messages_for_chat_template(messages)[1])
+        self.assertFalse(messages[1]["trainable"])
+
     def test_labels_include_only_assistant_content_and_tool_calls(self):
         """user 与 tool observation 必须 mask，assistant 工具调用必须可训练。"""
         messages = [

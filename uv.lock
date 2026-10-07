@@ -1,34 +1,34 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'linux'",
-    "python_full_version == '3.14.*' and sys_platform == 'linux'",
     "python_full_version >= '3.15' and sys_platform == 'darwin'",
-    "python_full_version == '3.14.*' and sys_platform == 'darwin'",
     "python_full_version >= '3.15' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform == 'emscripten'",
     "python_full_version >= '3.15' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'linux'",
+    "python_full_version == '3.14.*' and sys_platform == 'darwin'",
     "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.14.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform == 'linux'",
     "python_full_version == '3.13.*' and sys_platform == 'darwin'",
-    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'linux'",
-    "python_full_version < '3.11' and sys_platform == 'linux'",
     "python_full_version == '3.11.*' and sys_platform == 'darwin'",
-    "python_full_version < '3.11' and sys_platform == 'darwin'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.11' and sys_platform == 'linux'",
+    "python_full_version < '3.11' and sys_platform == 'darwin'",
     "python_full_version < '3.11' and sys_platform != 'darwin' and sys_platform != 'linux'",
 ]
 
@@ -363,7 +363,7 @@ wheels = [
 
 [[package]]
 name = "bitsandbytes"
-version = "0.50.0"
+version = "0.50.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -371,11 +371,11 @@ dependencies = [
     { name = "torch" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8b/6c/b3c2a6b05e0fb06c6258b675436b2b090192450d7f283826e6323471e270/bitsandbytes-0.50.0-py3-none-macosx_14_0_arm64.whl", hash = "sha256:c6f482df4dc18c7c150246577025de40dd0935031ea10a1e4122599a525b39bb", size = 123217, upload-time = "2026-07-24T19:48:51.724Z" },
-    { url = "https://files.pythonhosted.org/packages/d2/3a/fe0f0c7186436038319f15156386e844abc2ae1e54b8cda3f53b81a96cb9/bitsandbytes-0.50.0-py3-none-manylinux_2_24_aarch64.whl", hash = "sha256:824d931d8e77d7db09bb26d940268d36920e0757e2a2f49cce8766e309e13048", size = 23776757, upload-time = "2026-07-25T01:34:17.305Z" },
-    { url = "https://files.pythonhosted.org/packages/22/08/9501f4fc830448a6862bd5313df94a7dd1ae678f4f81087b96569d4a6f8b/bitsandbytes-0.50.0-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:173d137610468bec9cddbaa2e049254e97792657ab984e3e737bec1772c1668c", size = 40860117, upload-time = "2026-07-25T01:34:21.049Z" },
-    { url = "https://files.pythonhosted.org/packages/78/40/7b2253f94ec8c6235606aa393f315d941d02c44f141b7bccae14202b3fea/bitsandbytes-0.50.0-py3-none-win_amd64.whl", hash = "sha256:7f9ebf51d76a00341711cdd557af97555274b5aad3444975ff9927866a18bc11", size = 37961095, upload-time = "2026-07-25T01:34:24.809Z" },
-    { url = "https://files.pythonhosted.org/packages/b5/e9/3cbda2ff7574753a493fd2bc27c1dc64cb51d97534ad2136f64e68d34344/bitsandbytes-0.50.0-py3-none-win_arm64.whl", hash = "sha256:9c6f63f7f35c4425661256daca56664d2e4f05a5d230a9a148cb14df207bcca2", size = 128508, upload-time = "2026-07-25T01:34:27.322Z" },
+    { url = "https://files.pythonhosted.org/packages/55/bf/5290208ce1ecf0f2e6a916fc72a75f6e68021ecfd69e7014fc95998532eb/bitsandbytes-0.50.2-py3-none-macosx_14_0_arm64.whl", hash = "sha256:4311f52a880b341bada639e4edd1a3c8d786830c9c93cdde29eaa1f062c8f8e5", size = 123541, upload-time = "2026-08-27T00:10:48.726Z" },
+    { url = "https://files.pythonhosted.org/packages/88/d5/b2cb5b5a9daf7349a02b1af2c49b6a044fda2702c9cc5dc296f648358327/bitsandbytes-0.50.2-py3-none-manylinux_2_24_aarch64.whl", hash = "sha256:d5772560dd94c4d9c57f50c9b017450a1707f7687bfd4b3dc86f7342aafe721e", size = 23777467, upload-time = "2026-08-27T00:10:50.92Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/6e/e4e8b75716dbe5e50964f070266e06f4e6806ce051bfb97f52ee162b9310/bitsandbytes-0.50.2-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:55348a9a4a21bfd99cf8c7b32fe67b4030ae5c2a05738e03c1747f65fa6ec283", size = 43139553, upload-time = "2026-08-27T00:10:54.751Z" },
+    { url = "https://files.pythonhosted.org/packages/72/82/742dc27a1feab90c8f87f2ed14e6d72d05f9e1cf764b4d2ba30aa9b4a2cb/bitsandbytes-0.50.2-py3-none-win_amd64.whl", hash = "sha256:c697963c8fda3dcd0d7ebd9b5211ae4067feef7cd06e0350d4e816a434fe683d", size = 39096375, upload-time = "2026-08-27T00:10:58.297Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/57/61636c5b11b0a32e505127a6dce6fa8fcbf73978babe8fa37082ab547f1c/bitsandbytes-0.50.2-py3-none-win_arm64.whl", hash = "sha256:8437ab68a04ea56daf1d6ecb54230fb1d88be4b89fe2d79bc399bc0203b487cf", size = 1058684, upload-time = "2026-08-27T00:11:00.664Z" },
 ]
 
 [[package]]
@@ -1386,6 +1386,31 @@ wheels = [
 ]
 
 [[package]]
+name = "fla-core"
+version = "0.5.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/94/85/20bdc0fbbbaeec27b5b198e0dbbbc51161a267066a4aebd9e4b413637c6c/fla_core-0.5.2.tar.gz", hash = "sha256:9360fc412f784c1c8f05c320ec2902d5d968764178c9b8a92efc919e17a39680", size = 587835, upload-time = "2026-07-27T18:26:19.424Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/ed/dfe19c4da779957eb6a42a26812f9b4e2280bf757a17a71933ff59ffcb98/fla_core-0.5.2-py3-none-any.whl", hash = "sha256:5e830c85bad3d0d34677f98ac7074d08687a3756f0f0499d95ceb96eb6920761", size = 819225, upload-time = "2026-07-27T18:26:16.147Z" },
+]
+
+[[package]]
+name = "flash-linear-attention"
+version = "0.5.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fla-core" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d2/76/c180949eae5161b9fcf4c928cab52f0c257ce84c1a59b4462b1d2b6e5883/flash_linear_attention-0.5.2.tar.gz", hash = "sha256:c053d3a75c8f5b725063f719ae6bce0f4d9dac6da32735be8ae7d485a6c9820f", size = 208110, upload-time = "2026-07-27T18:26:20.536Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/d2/2070e3cf2148c5cce99ca4876633c4b7b89ec085323600bd3d47aeacd306/flash_linear_attention-0.5.2-py3-none-any.whl", hash = "sha256:dcf405d81f5426393b59037097aa700d0f4a841465d5028d5aa543f4502f2400", size = 399590, upload-time = "2026-07-27T18:26:17.912Z" },
+]
+
+[[package]]
 name = "flashinfer-cubin"
 version = "0.6.13"
 source = { registry = "https://pypi.org/simple" }
@@ -2229,15 +2254,15 @@ wheels = [
 
 [[package]]
 name = "liger-kernel"
-version = "0.8.1"
+version = "0.8.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "torch" },
     { name = "triton" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1a/6b/5d4b965e411d35fb1f533d4b2a2a9a1e99f4bf3fc751ab22b989159c2a18/liger_kernel-0.8.1.tar.gz", hash = "sha256:ae708a8079d2283070128e38497aa2976294d822e21a0f21ea86e63c67334a8b", size = 4157449, upload-time = "2026-07-23T00:01:37.77Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/a9/6689c0790bc680fac910d6203246f9f7fb382a7614424eef9080cc5025f4/liger_kernel-0.8.4.tar.gz", hash = "sha256:e4ef9b7a30c69f207ffbe37fdf95e391ba72ac5b4ee0a333f55732c47e661750", size = 6800691, upload-time = "2026-09-30T20:46:10.682Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/dc/68b2d8400e97d64412536bf3bd72c8890238013ebf75b95598c56b3b10a8/liger_kernel-0.8.1-py3-none-any.whl", hash = "sha256:90836c1e9de22a1c57a640775fb79151ea704748cf9c3f6658dddaa06fff1989", size = 506445, upload-time = "2026-07-23T00:01:35.995Z" },
+    { url = "https://files.pythonhosted.org/packages/58/9f/c54c1285491e530c898de7be389368265660a2292afc18777f5d6c37f0ad/liger_kernel-0.8.4-py3-none-any.whl", hash = "sha256:9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111", size = 900182, upload-time = "2026-09-30T20:46:08.42Z" },
 ]
 
 [[package]]
@@ -2944,24 +2969,24 @@ version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'linux'",
-    "python_full_version == '3.14.*' and sys_platform == 'linux'",
     "python_full_version >= '3.15' and sys_platform == 'darwin'",
-    "python_full_version == '3.14.*' and sys_platform == 'darwin'",
     "python_full_version >= '3.15' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform == 'emscripten'",
     "python_full_version >= '3.15' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'linux'",
+    "python_full_version == '3.14.*' and sys_platform == 'darwin'",
     "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.14.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform == 'linux'",
     "python_full_version == '3.13.*' and sys_platform == 'darwin'",
-    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'linux'",
     "python_full_version == '3.11.*' and sys_platform == 'darwin'",
@@ -3884,24 +3909,24 @@ version = "3.0.5"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'linux'",
-    "python_full_version == '3.14.*' and sys_platform == 'linux'",
     "python_full_version >= '3.15' and sys_platform == 'darwin'",
-    "python_full_version == '3.14.*' and sys_platform == 'darwin'",
     "python_full_version >= '3.15' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform == 'emscripten'",
     "python_full_version >= '3.15' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'linux'",
+    "python_full_version == '3.14.*' and sys_platform == 'darwin'",
     "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.14.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform == 'linux'",
     "python_full_version == '3.13.*' and sys_platform == 'darwin'",
-    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'linux'",
     "python_full_version == '3.11.*' and sys_platform == 'darwin'",
@@ -5636,24 +5661,24 @@ version = "2026.6.3"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'linux'",
-    "python_full_version == '3.14.*' and sys_platform == 'linux'",
     "python_full_version >= '3.15' and sys_platform == 'darwin'",
-    "python_full_version == '3.14.*' and sys_platform == 'darwin'",
     "python_full_version >= '3.15' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform == 'emscripten'",
     "python_full_version >= '3.15' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'linux'",
+    "python_full_version == '3.14.*' and sys_platform == 'darwin'",
     "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.14.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform == 'linux'",
     "python_full_version == '3.13.*' and sys_platform == 'darwin'",
-    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'linux'",
     "python_full_version == '3.11.*' and sys_platform == 'darwin'",
@@ -6038,16 +6063,20 @@ sft = [
     { name = "transformers" },
 ]
 sft-accelerated = [
-    { name = "bitsandbytes" },
+    { name = "flash-linear-attention" },
     { name = "liger-kernel" },
+]
+sft-quantized = [
+    { name = "bitsandbytes" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'sft'", specifier = ">=1,<2" },
-    { name = "bitsandbytes", marker = "extra == 'sft-accelerated'", specifier = ">=0.45,<1" },
+    { name = "bitsandbytes", marker = "extra == 'sft-quantized'", specifier = "==0.50.2" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2,<2" },
-    { name = "liger-kernel", marker = "extra == 'sft-accelerated'", specifier = ">=0.6,<1" },
+    { name = "flash-linear-attention", marker = "extra == 'sft-accelerated'", specifier = "==0.5.2" },
+    { name = "liger-kernel", marker = "extra == 'sft-accelerated'", specifier = "==0.8.4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14,<2" },
     { name = "numpy", marker = "extra == 'grpo'", specifier = "==2.2.6" },
     { name = "peft", marker = "extra == 'sft'", specifier = ">=0.15,<1" },
@@ -6069,7 +6098,7 @@ requires-dist = [
     { name = "verl", marker = "extra == 'grpo'", specifier = "==0.8.0" },
     { name = "vllm", marker = "extra == 'grpo'", specifier = "==0.25.1" },
 ]
-provides-extras = ["eval", "sft", "sft-accelerated", "grpo", "dev"]
+provides-extras = ["eval", "sft", "sft-accelerated", "sft-quantized", "grpo", "dev"]
 
 [[package]]
 name = "simplejson"

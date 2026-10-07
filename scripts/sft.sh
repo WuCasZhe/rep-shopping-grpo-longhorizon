@@ -12,8 +12,10 @@ cd "$ROOT"
   --train data/sft/train.jsonl \
   --validation data/sft/validation.jsonl \
   --output "$ADAPTER_DIR" \
+  --max-length 16384 \
   --dtype auto \
   --gradient-checkpointing \
+  --liger-kernel \
   --attention-implementation sdpa
 
 exec "$ROOT/.venv/bin/python" scripts/merge_lora_adapter.py \

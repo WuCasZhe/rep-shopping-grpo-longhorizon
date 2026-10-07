@@ -29,6 +29,7 @@ from shopping_grpo.environment.tools import (
     tool_call_to_action,
 )
 from shopping_grpo.environment.observation import render_structured_observation
+from shopping_grpo.evaluation.model_client import DEFAULT_FLASH_MODEL
 
 
 SYSTEM_PROMPT = """你是一个购物 Agent，负责在 ShopSimulator 中替用户完成一次单轮购物任务。
@@ -37,7 +38,7 @@ SYSTEM_PROMPT = """你是一个购物 Agent，负责在 ShopSimulator 中替用�
 
 执行规则：
 1. 动作合法性与历史比较。当前页面是动作合法性的唯一依据；历史 observation 可以用于记住和比较候选，但不能直接点击历史页面中的 ASIN、按钮或规格。每次工具返回后先阅读最新 observation 中的“可点击的按钮”，每个 assistant 回合只调用一个工具。
-2. 页面状态与参数。Description、Features、Reviews、Attributes 都是信息子页：一旦进入这类子页，必须先调用当前页面可见的 `prev_page` 或 `back_to_search` 返回；不得直接切换到另一个信息子页、选择规格、购买或搜索。无参数工具（查看、翻页、返回、购买）必须传严格的 `{}`；只有 `search_products` 使用 `query`、`open_product` 使用 `asin`、`select_option` 使用 `value`。
+2. 页面状态与参数。Description、Features、Reviews、Attributes 都是信息子页：一旦进入这类子页，必须先调用当前页面可见的 `prev_page` 或 `back_to_search` 返回；不得直接切换到另一个信息子页、选择规格、购买或搜索。无参数工具（查看、翻页、返回、购买）不得提供任何参数；只有 `search_products` 使用 `query`、`open_product` 使用 `asin`、`select_option` 使用 `value`。
 3. 搜索与候选探索。查询应简洁，优先使用品类和最有区分度的品牌、型号、核心功能或规格，不要机械复制整段需求。结果不理想时，缩短查询、更换真正不同的关键词或翻页；出现有希望的商品时应打开核验。不要重复相同查询，也不要只做同义改写却反复得到相同候选。
 4. 固定选择优先级。按“品类 > 预算 > 品牌 > 型号与核心功能 > 规格属性”比较候选。品类必须正确；选择具体规格后的实际价格不得超过用户明确预算。品类不符、价格未知或超预算时绝不能购买。在通过这两个门槛的候选中，依次优先满足品牌、型号与核心功能、规格属性；全部要求都满足的候选最好。
 5. 证据、规格与购买。品牌、型号、规格、功能和价格优先依据结构化字段、商品详情、Description、Features 和 Attributes；Reviews 只用于辅助判断使用体验，不能用于确认型号、官方功能、规格或价格。先完成必要的商品核验，再为最终候选补齐当前商品所有影响可购买 variant 的必要规格轴；不要为了临时浏览而随意选择规格。同一规格轴只选择一个当前页面可见的值，并以完整 variant 的实际价格判断预算。只有 `Buy Now` 当前可见，且商品通过品类和预算门槛，并在其余维度上是已核验候选中的最佳选择时，才调用 `buy_now`。
@@ -179,10 +180,10 @@ class OpenAIChatClient:
             )
         else:
             payload.update({"temperature": self.temperature, "top_p": self.top_p})
-            # OpenCode Go defaults DeepSeek V4 to thinking enabled. Omitting the
+            # DeepSeek defaults to thinking enabled. Omitting the
             # field therefore does not mean disabled; be explicit for this model
             # family without sending a provider-specific field to local vLLM.
-            if self.model.casefold().startswith("deepseek-v4"):
+            if self.model.casefold().startswith("deepseek-"):
                 payload["thinking"] = {"type": "disabled"}
         headers = {
             "Content-Type": "application/json",
@@ -709,8 +710,8 @@ def client_from_env(
     if not api_key:
         raise ValueError("api_key or OPENAI_API_KEY is required")
     return OpenAIChatClient(
-        model=model or os.environ.get("OPENAI_MODEL", "deepseek-chat"),
-        base_url=base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        model=model or os.environ.get("OPENAI_MODEL", DEFAULT_FLASH_MODEL),
+        base_url=base_url or os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com/v1"),
         api_key=api_key,
         temperature=temperature,
         top_p=top_p,

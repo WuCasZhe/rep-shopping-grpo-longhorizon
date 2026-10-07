@@ -46,6 +46,10 @@ def make_runtime_state(task_id: int, max_steps: int) -> dict:
         "reward_detail": None,
         "infrastructure_invalid": False,
         "error": None,
+        "tool_parse_errors": 0,
+        "consecutive_tool_parse_errors": 0,
+        "tool_parse_error_reasons": {},
+        "tool_parse_error_details": [],
         "context_compactions": 0,
         "context_tokens_removed": 0,
         "context_max_input_tokens": 0,
@@ -226,15 +230,16 @@ def reward_breakdown(state: dict) -> dict[str, float | bool]:
 
     if state.get("reward_version") == "shopsimulator-reward-v3":
         detail = state.get("reward_detail") or {}
-        reward_valid = bool(state.get("reward_valid", True))
+        reward_valid = state.get("reward_valid") is True
         invalid_reward = not reward_valid
         gates = detail.get("hard_gates") or {}
         dimension_scores = detail.get("dimension_scores") or {}
         component = lambda name: float(bool(gates.get(name, {}).get("passed")))
-        full = float(state.get("reward_type") == "gold_purchase")
+        valid_terminal = normal_terminal and reward_valid and not invalid
+        full = float(valid_terminal and state.get("reward_type") == "gold_purchase")
         strict = full
         purchase_success = bool(
-            state.get("reward_type")
+            valid_terminal and state.get("reward_type")
             in {"gold_purchase", "valid_alternative_purchase"}
         )
         terminal_utility = (

@@ -14,6 +14,6 @@ fi
 exec "$ROOT/.venv/bin/vllm" serve "$MODEL" \
   --served-model-name "$SERVED_MODEL_NAME" \
   --port "$LLM_PORT" \
-  --max-model-len 24576 \
+  --max-model-len 16384 \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder

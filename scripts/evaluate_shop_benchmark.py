@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument(
         "--context-window",
         type=int,
-        default=24576,
+        default=16384,
         help="上下文窗口；传 0 禁用 vLLM /tokenize 依赖。",
     )
     parser.add_argument("--context-safety-margin", type=int, default=512)

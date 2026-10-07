@@ -1,18 +1,16 @@
 --- a/verl/trainer/ppo/ray_trainer.py
 +++ b/verl/trainer/ppo/ray_trainer.py
-@@ -20,0 +21,2 @@
-+# SHOPPING_GRPO_DYNAMIC_SAMPLING_PATCH_V3
+@@ -19,0 +20,2 @@
 +
-@@ -1380,0 +1383,8 @@
-+        )
-+
++# SHOPPING_GRPO_DYNAMIC_SAMPLING_PATCH_V4
+@@ -1382,0 +1385,72 @@
 +        from shopping_grpo.training.grpo.dynamic_sampling import (
 +            aggregate_shopping_metrics,
 +            append_training_diagnostic,
 +            build_rollout_diagnostics,
 +            extract_shopping_group_signals,
 +            select_reward_varying_groups,
-@@ -1381,0 +1392,64 @@
++        )
 +
 +        diagnostics_path = os.environ.get("SHOPPING_GRPO_DIAGNOSTICS_PATH")
 +
@@ -77,6 +75,7 @@
 +                    sort_keys=True,
 +                )
 +            )
++
 @@ -1409,2 +1483,4 @@
 -        # we start from step 1
 -        self.global_steps += 1
@@ -102,8 +101,7 @@
 -                        self.checkpoint_manager.sleep_replicas()
 +                        if not dynamic_sampling_enabled:
 +                            self.checkpoint_manager.sleep_replicas()
-@@ -1524,0 +1605,214 @@
-+                        reward_tensor, reward_extra_infos_dict = extract_reward(batch)
+@@ -1525,0 +1606,322 @@
 +
 +                    if dynamic_sampling_enabled:
 +                        seq_rewards = reward_tensor.sum(dim=-1).detach().cpu().tolist()
@@ -199,7 +197,7 @@
 +                        if dynamic_accepted_prompts < dynamic_target_prompts:
 +                            if curr_step_profile:
 +                                self._stop_profiling(True)
-+                            if dynamic_num_gen_batches >= dynamic_max_gen_batches:
++                            if dynamic_num_gen_batches % dynamic_max_gen_batches == 0:
 +                                dynamic_skipped_updates += 1
 +                                dynamic_consecutive_skips += 1
 +                                skipped_metrics = {
@@ -281,17 +279,10 @@
 +                                    current_step,
 +                                    metrics=skipped_metrics,
 +                                )
-+                                dynamic_accepted_batches = []
-+                                dynamic_accepted_prompts = 0
-+                                dynamic_num_gen_batches = 0
-+                                dynamic_generated_groups = 0
-+                                dynamic_filtered_groups = 0
-+                                dynamic_all_equal_groups = 0
-+                                dynamic_all_zero_utility_groups = 0
-+                                dynamic_all_purchase_success_groups = 0
-+                                dynamic_no_purchase_success_groups = 0
-+                                dynamic_sampling_invalid_groups = 0
-+                                dynamic_generated_trajectories = 0
++                                # No optimizer update occurred: cached groups still belong
++                                # to this policy version. Keep them (and their original
++                                # rollout log-probs) across bounded sampling windows.
++                                # At most target_prompts - 1 groups remain in memory.
 +                                if (
 +                                    dynamic_consecutive_skips
 +                                    >= dynamic_max_consecutive_skips
@@ -317,7 +308,7 @@
 +                                continue
 +                            images_seqlens_all.extend(multi_modal_input["images_seqlens"].tolist())
 +                        batch.meta_info["images_seqlens"] = images_seqlens_all
-@@ -1525,0 +1820,70 @@
++                        reward_tensor, reward_extra_infos_dict = extract_reward(batch)
 +                        metrics.update(
 +                            {
 +                                "group/generated": dynamic_generated_groups,
@@ -388,7 +379,7 @@
 +                        dynamic_no_purchase_success_groups = 0
 +                        dynamic_sampling_invalid_groups = 0
 +                        dynamic_generated_trajectories = 0
-@@ -1526,0 +1891,45 @@
++
 +                    if "shopping" not in batch.non_tensor_batch:
 +                        raise RuntimeError(
 +                            "Shopping GRPO requires AgentLoop shopping diagnostics"
@@ -433,35 +424,34 @@
 +                                "rollout/generated_total": group_stats["num_trajectories"],
 +                            }
 +                        )
-+
-@@ -1643 +2052 @@
+@@ -1643 +2045 @@
 -                    if self.config.trainer.critic_warmup > self.global_steps:
 +                    if self.config.trainer.critic_warmup > current_step:
-@@ -1645 +2054 @@
+@@ -1645 +2047 @@
 -                        self.checkpoint_manager.update_weights(self.global_steps)
 +                        self.checkpoint_manager.update_weights(current_step)
-@@ -1649,0 +2059,3 @@
+@@ -1649,0 +2052,3 @@
 +                        optimizer_updated = True
 +                        if dynamic_sampling_enabled:
 +                            self.global_steps = current_step
-@@ -1665 +2077 @@
+@@ -1665 +2070 @@
 -                            or self.global_steps % self.config.trainer.save_freq == 0
 +                            or current_step % self.config.trainer.save_freq == 0
-@@ -1675 +2087 @@
+@@ -1675 +2080 @@
 -                            self.checkpoint_manager.update_weights(self.global_steps)
 +                            self.checkpoint_manager.update_weights(current_step)
-@@ -1687 +2099 @@
+@@ -1687 +2092 @@
 -                    is_last_step or self.global_steps % self.config.trainer.test_freq == 0
 +                    is_last_step or current_step % self.config.trainer.test_freq == 0
-@@ -1697 +2109 @@
+@@ -1697 +2102 @@
 -                        self.global_steps + 1 in self.config.global_profiler.steps
 +                        current_step + 1 in self.config.global_profiler.steps
-@@ -1715 +2127 @@
+@@ -1715 +2120 @@
 -                        "training/global_step": self.global_steps,
 +                        "training/global_step": current_step,
-@@ -1716,0 +2129 @@
+@@ -1716,0 +2122 @@
 +                        "training/optimizer_updated": int(optimizer_updated),
-@@ -1718,0 +2132,12 @@
+@@ -1718,0 +2125,12 @@
 +                if dynamic_sampling_enabled:
 +                    metrics.update(
 +                        {
@@ -474,7 +464,7 @@
 +                            ),
 +                        }
 +                    )
-@@ -1750 +2175,11 @@
+@@ -1750 +2168,11 @@
 -                logger.log(data=metrics, step=self.global_steps)
 +                append_training_diagnostic(
 +                    diagnostics_path,
@@ -487,7 +477,7 @@
 +                    ),
 +                )
 +                logger.log(data=metrics, step=current_step)
-@@ -1753 +2188,6 @@
+@@ -1753 +2181,6 @@
 -                self.global_steps += 1
 +                if dynamic_sampling_enabled and not optimizer_updated:
 +                    raise RuntimeError(

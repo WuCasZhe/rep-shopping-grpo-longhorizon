@@ -4,11 +4,13 @@
 [Final-200 Benchmark Dashboard](evaluation-dashboard.html) 仅保留为历史归档。
 
 本项目的正式评估不是“让一个模型看结果后打一个总分”，而是由代码硬检查、
-DeepSeek V4 Flash Rubric 整理器、DeepSeek V4 Pro 轨迹 Judge 和最终聚合器组成。
+DeepSeek V4.1 Flash Rubric 整理器、DeepSeek V4.1 Flash 轨迹 Judge 和最终聚合器组成。
 四类结果始终分栏报告，不合成一个不可解释的总分。
 
+两个 LLM 角色均使用官方 API ID `deepseek-flash`（DeepSeek V4.1 Flash），Prompt 和输入隔离保持原协议。文中的 task 8187 示例来自旧模型协议，未以新模型重新评分；已有 Rubric/评测记录保留真实模型来源，新调用记录实际 requested_model/provider_model。
+
 > 文档中的 **Rubric** 指“逐任务评分标准”，不是向量检索式 RAG。它由代码候选和
-> V4 Flash 共同生成，随后冻结并由 Baseline、SFT、GRPO 三个 Actor 共享。
+> V4.1 Flash 共同生成，随后冻结并由 Baseline、SFT、GRPO 三个 Actor 共享。
 
 ## 1. 全流程
 
@@ -16,7 +18,7 @@ DeepSeek V4 Flash Rubric 整理器、DeepSeek V4 Pro 轨迹 Judge 和最终聚�
 flowchart TD
     A["Final-200 Clean benchmark<br/>200 × task_id"] --> B["从 ShopSimulator 导出私有 TaskFacts<br/>Query + 目标商品结构化事实"]
     B --> C["代码提取 Rubric 候选<br/>category / brand / model / function / option / price"]
-    C --> D["DeepSeek V4 Flash<br/>只能筛选、去重、描述和标注 hard/soft"]
+    C --> D["DeepSeek V4.1 Flash<br/>只能筛选、去重、描述和标注 hard/soft"]
     D --> E["Schema + candidate_id + Query span + hash 校验"]
     E --> F["每个 task 冻结一个 Rubric bundle<br/>三个 Actor 共用"]
 
@@ -26,7 +28,7 @@ flowchart TD
     I -->|infrastructure_invalid| J["not_judged<br/>仍保留在 200 题分母"]
     I -->|valid| K["构建 Judge-safe 输入<br/>移除 Reward、Gold 和 raw observation"]
     F --> K
-    K --> L["DeepSeek V4 Pro<br/>逐 Rubric 判断 + 五维轨迹评分 + 错误分类"]
+    K --> L["DeepSeek V4.1 Flash<br/>逐 Rubric 判断 + 五维轨迹评分 + 错误分类"]
     L --> M["JSON Schema、event_id、rubric_id、模型与请求 Hash 校验"]
     J --> N["四面板结果拼装"]
     M --> N
@@ -35,7 +37,7 @@ flowchart TD
 ```
 
 Rubric 只需要为每个任务生成一次；它不依赖某个 Actor 的轨迹。三个模型随后在相同
-任务上各自产生一条 Rollout，并独立交给 Pro Judge，避免 Judge 先看到其他模型的
+任务上各自产生一条 Rollout，并独立交给 Trajectory Judge，避免 Judge 先看到其他模型的
 结果而产生比较偏差。
 
 ## 2. Benchmark 中的一条 Test
@@ -54,7 +56,7 @@ Rubric 只需要为每个任务生成一次；它不依赖某个 Actor 的轨迹
 
 TaskFacts 还包含目标商品的 category、title、brand、pricing、attributes、
 customization options，以及 Reward v3 已编译的结构化需求。它们用于生成候选约束，
-但目标商品私有字段不会进入 Actor，也不会直接进入 Pro Judge。
+但目标商品私有字段不会进入 Actor，也不会直接进入 Trajectory Judge。
 
 Final-200 Clean 的约束如下：
 
@@ -65,7 +67,7 @@ Final-200 Clean 的约束如下：
 - 不用于 Prompt 调优、Rubric/Judge 校准或 checkpoint 选择；
 - 每个模型每题一次确定性 Rollout。
 
-## 3. 第一位 LLM：V4 Flash 生成冻结 Rubric
+## 3. 第一位 LLM：V4.1 Flash 生成冻结 Rubric
 
 ### 3.1 代码先生成候选，不让 Flash 自由发挥
 
@@ -84,15 +86,15 @@ Final-200 Clean 的约束如下：
 | `price_preference` | 价格在 20 元左右 | `purchase.price approximately 20` |
 
 每个候选都有固定的 `candidate_id`、字段、操作符、期望值、hardness hint、Query
-span、数据来源和 selection guidance。V4 Flash 无权创造新的底层字段、操作符或值。
+span、数据来源和 selection guidance。V4.1 Flash 无权创造新的底层字段、操作符或值。
 
 示例 task 8187 的代码候选共有 7 条：品类、高档、结婚、陪嫁、卡通-永结同心、
 “【卡通-永结同心】2个装”选项，以及“20 元左右”的价格偏好。
 
-### 3.2 V4 Flash 的完整 System Prompt
+### 3.2 V4.1 Flash 的完整 System Prompt
 
 当前冻结版本为 `rubric-curator-v1-draft-r4`，模型为
-`deepseek-v4-flash`。下面是代码中的完整提示词：
+`deepseek-flash`。下面是代码中的完整提示词：
 
 ```text
 你是当前 Shopping Agent 项目的需求 Rubric 整理器，不是自由生成需求的助手。
@@ -141,7 +143,7 @@ hard/soft 规则：
 不要输出 Markdown、解释性前后缀或任何额外字段。
 ```
 
-V4 Flash 实际收到的 User 消息只有：
+V4.1 Flash 实际收到的 User 消息只有：
 
 ```json
 {
@@ -166,6 +168,12 @@ Flash 返回后，代码会检查：
 不会放宽约束或生成默认 Rubric。最终 Rubric 按 `task_id` 缓存，Baseline、SFT、
 GRPO 共用同一份。
 
+JSON 客户端默认请求 `response_format=json_object`。非法 JSON、重复键、NaN/Infinity
+以及 `finish_reason=length` 的截断响应均不能成为有效评分；截断时，重试的输出预算
+最多增至初始值的两倍。传入 `complete_json(..., validator=...)` 的 Schema 校验也与
+网络和解析错误共用有限重试次数。重试耗尽会抛出错误，不生成默认分数。请求元数据
+记录实际 token 上限、结束原因和重试类别，便于区分协议错误与输出截断。
+
 示例 task 8187 最终从 7 条候选中选出 5 条：
 
 | Rubric | Hardness | 要求 |
@@ -189,11 +197,14 @@ GRPO 共用同一份。
 | Temperature / top-p | `0.0 / 1.0` |
 | 最大环境步数 | 35 |
 | 每回合最大生成 token | 512 |
-| Context / safety margin | `24,576 / 512` |
+| Context / safety margin | `16,384 / 512` |
 | Context compaction | 关闭 |
 | Search observation | top 20，预算 1,536 token |
 | Product detail observation | 预算 4,096 token |
 | Generic fallback | 预算 768 token |
+
+当前上下文上限统一为 16K。已有 24K 评测记录保留原协议；新的 Base、SFT、GRPO
+比较须全部使用同一 16K 上限，不能将两种预算下的结果当作同协议直接比较。
 
 一次 Rollout 会保存用户 Query、Assistant 文本、工具调用、Actor 实际看到的投影后
 Observation、Guard 拒绝、每步状态、终局结果和基础审计信息。
@@ -215,18 +226,18 @@ LLM Judge 之前先进行确定性预处理：
 7. 统计 Observation 投影、截断、上下文 token 和 overflow；
 8. 检查 release error、任务缺失及其他 `infrastructure_invalid` 情况。
 
-如果轨迹被判为 `infrastructure_invalid`，系统直接生成 `not_judged`，不会要求 Pro
+如果轨迹被判为 `infrastructure_invalid`，系统直接生成 `not_judged`，不会要求 Trajectory Judge
 猜一个分数，但该任务仍留在固定 200 题分母中。
 
-## 6. 第二位 LLM：V4 Pro 评价完整轨迹
+## 6. 第二位 LLM：V4.1 Flash 评价完整轨迹
 
-### 6.1 Pro 实际能看到什么？
+### 6.1 Trajectory Judge 实际能看到什么？
 
-`deepseek-v4-pro` 的输入由以下内容组成：
+`deepseek-flash` 的输入由以下内容组成：
 
 - `task_id` 与 `trajectory_id`；
 - 用户原始 Query；
-- V4 Flash 已冻结的 Rubric；
+- V4.1 Flash 已冻结的 Rubric；
 - 五个维度及允许分值 `[0, 1, 2]`；
 - 冻结的错误类型集合；
 - Actor-visible trajectory：
@@ -243,7 +254,7 @@ LLM Judge 之前先进行确定性预处理：
   - context；
 - 要求输出的严格 JSON Schema。
 
-Pro 明确看不到：
+Trajectory Judge 明确看不到：
 
 - raw Observation；
 - Gold 商品私有字段和 Actor 未看到的候选；
@@ -252,9 +263,9 @@ Pro 明确看不到：
 - infrastructure validity；
 - 其他模型在同一题上的结果。
 
-这种隔离防止 Pro 因为先看到 Reward 或 Gold 答案而倒推“轨迹一定正确”。
+这种隔离防止 Trajectory Judge 因为先看到 Reward 或 Gold 答案而倒推“轨迹一定正确”。
 
-### 6.2 Pro 的完整 System Prompt
+### 6.2 Trajectory Judge 的完整 System Prompt
 
 当前冻结版本为 `trajectory-judge-v1-draft-r3`：
 
@@ -292,10 +303,10 @@ schema_version 必须是 shopping-trajectory-judge-v1。禁止输出 total_score
 | Decision Quality | 违反硬约束或错误购买/放弃 | 基本合理但有未满足项或证据缺口 | 商品、规格与决策均有证据支持 |
 | Termination Efficiency | 过早终止、循环或耗尽步骤 | 存在轻度冗余 | 证据充分后及时购买或合理放弃 |
 
-Pro 还要逐条输出每个 Rubric 的
+Trajectory Judge 还要逐条输出每个 Rubric 的
 `satisfied / violated / unknown / not_applicable`、理由和证据 event IDs，并从冻结
 taxonomy 中给出 primary/secondary errors。代码随后验证 Rubric IDs 和 event IDs
-必须真实存在，五个维度必须齐全且只能为 0/1/2，禁止 Pro 输出总分。
+必须真实存在，五个维度必须齐全且只能为 0/1/2，禁止 Trajectory Judge 输出总分。
 
 示例 task 8187 的 SFT 轨迹得到：
 
@@ -333,7 +344,7 @@ Reward 与 Rubric 冲突时两者都保留。例如 Reward 判为 gold，但 Rub
 
 ### C. 轨迹质量
 
-- Pro Judge 有效覆盖率；
+- Trajectory Judge 有效覆盖率；
 - 五个维度各自的 0/1/2 分布与均值；
 - primary/secondary error taxonomy 分布；
 - 每条判断对应的 event IDs 和整体诊断。
@@ -351,7 +362,7 @@ Reward 与 Rubric 冲突时两者都保留。例如 Reward 判为 gold，但 Rub
 统计成功状态迁移、Reward type 迁移、hard violation 差值、五维分数差值、步数、
 Guard 和重复动作变化；仍然不生成一个综合总分。
 
-正式运行的 Pro Judge 覆盖率为：
+正式运行的 Trajectory Judge 覆盖率为：
 
 | Actor | Valid Judge | Not judged | Coverage |
 |---|---:|---:|---:|

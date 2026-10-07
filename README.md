@@ -109,40 +109,42 @@ AgentLoop、工具适配层、运行时兼容代码和一个带 SHA-256 校验�
 正式评估由“代码硬检查 + 两个 LLM-as-Judge + 固定分母聚合”组成。两个 Judge
 职责不同：
 
-- **DeepSeek V4 Flash 是 Rubric Curator。** 代码先根据每道题的 Query 和私有
+- **DeepSeek V4.1 Flash 是 Rubric Curator。** 代码先根据每道题的 Query 和私有
   TaskFacts 提取品类、品牌、型号、功能、规格和价格候选；Flash 只能从候选中选择
   用户真正要求的约束、去重并标注 hard/soft，不能创造新的字段或期望值。生成的
   Rubric 冻结一次，由 Baseline、SFT 和 GRPO 共用。
-- **DeepSeek V4 Pro 是 Trajectory Judge。** 它读取用户 Query、冻结 Rubric、
+- **DeepSeek V4.1 Flash 是 Trajectory Judge。** 它读取用户 Query、冻结 Rubric、
   Actor 实际看到的完整轨迹、中性终局状态和白名单代码指标，逐条判断需求是否满足，
   并从搜索策略、候选利用、证据核验、决策质量、终止效率五个维度分别打 0/1/2 分。
 
+两个角色均使用官方 API 模型 ID `deepseek-flash`，保留各自的 Prompt 和输入隔离。
 这里的 Rubric 是逐任务评分标准，不是向量检索式 RAG。
 
 ```mermaid
 flowchart TD
     A["Benchmark test_id"] --> B["私有 TaskFacts"]
     B --> C["代码提取 Rubric 候选"]
-    C --> D["V4 Flash 整理并冻结 Rubric"]
+    C --> D["V4.1 Flash 整理并冻结 Rubric"]
     A --> E["Actor + ShopSimulator Rollout"]
     E --> F["轨迹规范化 + Action Guard + 确定性硬检查"]
     F -->|基础设施无效| G["not_judged，仍计入 Final-200 Clean 分母"]
     F -->|检查通过| H["移除 Reward、Gold、raw observation"]
     D --> H
-    H --> I["V4 Pro 逐需求判断 + 五维评分 + 错误分类"]
+    H --> I["V4.1 Flash 逐需求判断 + 五维评分 + 错误分类"]
     G --> J["四面板结果拼装"]
     I --> J
     J --> K["Reward / Rubric / Trajectory / Deterministic"]
     K --> L["Baseline、SFT、GRPO 按 task_id 配对比较"]
 ```
 
+以下是原 V4 Flash/Pro 协议的历史示例，未以 V4.1 Flash 重新评分。
 以 Final-200 中的 `task_id=8187` 为例，Query 要求“一对卡通-永结同心款的高档
 酒红色木梳、礼盒、陪嫁、20 元左右”。代码生成 7 条候选，V4 Flash 冻结为 5 条
 Rubric；SFT Actor 用 10 步完成搜索、详情核验、规格选择和购买；V4 Pro 最终给出
 `搜索策略 2 / 候选利用 1 / 证据核验 1 / 决策质量 2 / 终止效率 2`，并为每项判断
 引用真实的 `event_id`。
 
-Pro 看不到 Reward 分数、Gold 商品私有字段、raw Observation、成功标签或其他模型
+Trajectory Judge 看不到 Reward 分数、Gold 商品私有字段、raw Observation、成功标签或其他模型
 结果，因此不能根据答案倒推轨迹质量。最终结果分为四个独立面板：
 
 1. Environment Reward 与终局；
@@ -396,7 +398,7 @@ bash scripts/grpo.sh --logger swanlab
 为进一步提升模型在长程购物任务中的规划、工具调用与约束满足能力，后续将从以下几个方面推进项目：
 
 - **扩大模型规模**：在现有实验基础上，训练更大规模的 `Qwen3.5-9B` 模型，评估模型规模对长程任务稳定性和最终成功率的影响。
-- **升级 Teacher 模型与轨迹采集方案**：不再依赖单一 Teacher 模型，计划采用 `Qwen3.8 Flash`、`GLM-5.3-Flash` 和 `DeepSeek-V4-Flash-0731` 的混合方案进行轨迹收集，以提升训练数据的覆盖范围、行为多样性与质量上限。
+- **升级 Teacher 模型与轨迹采集方案**：不再依赖单一 Teacher 模型，计划采用 `Qwen3.8 Flash`、`GLM-5.3-Flash` 和 `DeepSeek-V4.1-Flash` 的混合方案进行轨迹收集，以提升训练数据的覆盖范围、行为多样性与质量上限。
 - **扩大独立验证集**：增加验证任务数量和任务类型，覆盖更多商品类别、约束组合与交互路径，从而提高实验结论的统计可靠性和泛化评估能力。
 - **引入更细粒度的信用分配**：针对长程交互中终局奖励稀疏、动作贡献难以区分的问题，采用更细粒度的信用分配方法，为关键中间步骤提供更有效的训练信号。
 

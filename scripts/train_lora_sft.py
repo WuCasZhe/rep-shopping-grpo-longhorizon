@@ -49,8 +49,8 @@ def parse_args():
         help="课程阶段；训练/验证都从同一 manifest 的累计 bucket 中读取。",
     )
     parser.add_argument("--output", type=Path, required=True, help="LoRA adapter 输出目录")
-    # 24k 可保留当前真实轨迹的约 93%，48G 显存配合 batch=1 与梯度检查点可稳定训练。
-    parser.add_argument("--max-length", type=int, default=24576)
+    # 超长样本整条过滤，保留完整工具调用与购买终点。
+    parser.add_argument("--max-length", type=int, default=16384)
     parser.add_argument("--epochs", type=float, default=3)
     parser.add_argument("--per-device-train-batch-size", type=int, default=1)
     parser.add_argument("--per-device-eval-batch-size", type=int, default=1)
@@ -100,7 +100,7 @@ def parse_args():
     parser.add_argument(
         "--swanlab-mode",
         choices=("online", "local"),
-        default="online",
+        default="local",
         help="SwanLab 在线同步或只保存在本地；仅 --swanlab 时生效。",
     )
     return parser.parse_args()
@@ -193,7 +193,7 @@ def _validate_optional_training_dependencies(args):
         except ImportError as exc:
             raise SystemExit(
                 "--qlora 需要 bitsandbytes；请执行："
-                "uv sync --extra sft --extra sft-accelerated"
+                "uv sync --extra sft --extra sft-quantized"
             ) from exc
     if args.liger_kernel:
         try:

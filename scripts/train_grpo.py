@@ -78,10 +78,8 @@ def build_command(args: argparse.Namespace) -> tuple[list[str], dict[str, str]]:
             raise SystemExit(f"output must be a directory: {output}")
         if any(output.iterdir()):
             raise SystemExit(f"output directory must be new or empty: {output}")
-    if args.logger == "swanlab" and not os.environ.get("SWANLAB_API_KEY"):
-        raise SystemExit("--logger swanlab requires SWANLAB_API_KEY")
-
     environment = dict(os.environ)
+    environment.pop("SWANLAB_API_KEY", None)
     environment.update(
         {
             "PYTHONPATH": str(ROOT / "src"),
@@ -99,12 +97,13 @@ def build_command(args: argparse.Namespace) -> tuple[list[str], dict[str, str]]:
             "SHOPPING_AGENT_LOOP_CONFIG": str(DEFAULT_AGENT_CONFIG),
             "SHOPPING_TOOL_CONFIG": str(DEFAULT_TOOL_CONFIG),
             "GRPO_CONFIG_NAME": config.stem,
+            "GRPO_CONFIG_DIR": str(config.parent),
         }
     )
     if args.logger == "swanlab":
         environment.update(
             {
-                "SWANLAB_MODE": "online",
+                "SWANLAB_MODE": "local",
                 "SWANLAB_LOG_DIR": str(output / "swanlab"),
             }
         )
@@ -152,8 +151,7 @@ def main() -> None:
     preflight = [
         sys.executable,
         str(ROOT / "scripts/check_grpo_runtime.py"),
-        *overrides,
-        *extra,
+        *command[5:],
     ]
     preflight_status = subprocess.call(preflight, cwd=ROOT, env=environment)
     if preflight_status:

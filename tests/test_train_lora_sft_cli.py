@@ -130,7 +130,7 @@ class TrainLoraSftCliTest(unittest.TestCase):
 
         self.assertEqual(args.model, "/models/Qwen3.5-0.8B")
         self.assertEqual(args.train, Path("outputs/batch/train.jsonl"))
-        self.assertEqual(args.max_length, 24576)
+        self.assertEqual(args.max_length, 16384)
         self.assertEqual(args.epochs, 3)
         self.assertEqual(args.lora_r, 16)
         self.assertEqual(args.lora_alpha, 32)
@@ -139,6 +139,7 @@ class TrainLoraSftCliTest(unittest.TestCase):
         self.assertEqual(args.dtype, "auto")
         self.assertFalse(args.bf16)
         self.assertFalse(args.swanlab)
+        self.assertEqual(args.swanlab_mode, "local")
         self.assertEqual(args.swanlab_project, "shopping-grpo")
         self.assertEqual(
             args.curriculum_manifest,

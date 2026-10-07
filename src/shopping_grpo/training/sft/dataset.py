@@ -38,6 +38,7 @@ def normalize_messages_for_chat_template(messages):
     """
     normalized = deepcopy(messages)
     for message in normalized:
+        message.pop("trainable", None)
         for call in message.get("tool_calls") or []:
             function = call.get("function") or {}
             arguments = function.get("arguments")
@@ -69,6 +70,7 @@ def build_supervised_example(messages, tools, tokenizer, max_length=8192, chat_t
         index
         for index, message in enumerate(rendered_messages)
         if message.get("role") == "assistant"
+        and messages[index].get("trainable", True) is not False
     ]
     if not assistant_indices:
         return None

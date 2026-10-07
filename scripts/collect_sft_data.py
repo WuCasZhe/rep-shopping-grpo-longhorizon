@@ -15,6 +15,7 @@ from shopping_grpo.collection.sft import (
     build_collection_artifacts,
     task_ids_from_jsonl,
 )
+from shopping_grpo.evaluation.model_client import DEFAULT_FLASH_MODEL
 from shopping_grpo.evaluation.rollout import (
     CollectionInfrastructureError,
     OpenAIChatClient,
@@ -70,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("OPENAI_MODEL", "deepseek-v4-flash"),
+        default=os.environ.get("OPENAI_MODEL", DEFAULT_FLASH_MODEL),
     )
     parser.add_argument("--llm-base-url", default=os.environ.get("OPENAI_BASE_URL"))
     parser.add_argument("--api-key", default=os.environ.get("OPENAI_API_KEY"))

@@ -3,11 +3,13 @@
 import asyncio
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopMetrics, AgentLoopOutput
-from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
+from verl.experimental.agent_loop.tool_agent_loop import AgentState, ToolAgentLoop
 
+from shopping_grpo.environment.actions import action_reject_reason, clickable_buttons
 from shopping_grpo.training.grpo.adapter.agent_loop import ShoppingToolAgentLoop
 from shopping_grpo.training.grpo.adapter.runtime import (
     current_environment,
@@ -19,6 +21,206 @@ from shopping_grpo.training.grpo.adapter.runtime import (
 )
 from shopping_grpo.training.grpo.adapter.session import ShopSimulatorSession
 from shopping_grpo.training.grpo.adapter.tools import ShopSimulatorTool
+from shopping_grpo.training.grpo.adapter.tool_parser import ToolCallParseError
+
+
+class ObservationProjectionBoundaryTest(unittest.TestCase):
+    def _project_tool_response(self, raw):
+        async def run():
+            loop = object.__new__(ShoppingToolAgentLoop)
+            loop.max_tool_response_length = 4096
+            loop.observation_token_budget = 1536
+            loop.observation_detail_token_budget = 4096
+            loop.observation_generic_token_budget = 768
+            loop.observation_search_top_k = 20
+            # Four characters per token deliberately separates the two units.
+            loop.tokenizer = SimpleNamespace(
+                encode=lambda text, **kwargs: list(range((len(text) + 3) // 4))
+            )
+            state = make_runtime_state(1, 35)
+            token = current_runtime_state.set(state)
+            step = {"tool": "open_product"}
+
+            async def parent_call(_loop, tool_call, tools_kwargs, agent_data):
+                state["_pending_raw_observation"] = raw
+                # veRL's character fallback runs before the adapter's projection.
+                return SimpleNamespace(text=raw[:4096]), 0.0, step
+
+            try:
+                with patch.object(ToolAgentLoop, "_call_tool", parent_call):
+                    response, reward, returned_step = await loop._call_tool(
+                        SimpleNamespace(name="open_product", arguments="{}"),
+                        {},
+                        SimpleNamespace(),
+                    )
+                self.assertIs(returned_step, step)
+                self.assertEqual(reward, 0.0)
+                self.assertNotIn("_pending_raw_observation", state)
+                return response.text, state, step
+            finally:
+                current_runtime_state.reset(token)
+
+        return asyncio.run(run())
+
+    def _detail(self, repeats):
+        return (
+            "Product [SEP] " + "detail " * repeats
+            + "\n\n搜索功能是否可用: False"
+            + '\n\n可点击的按钮: ["back to search", "buy now", "blue"]'
+        )
+
+    def test_detail_within_token_budget_survives_character_fallback(self):
+        raw = self._detail(1000)
+        visible, state, step = self._project_tool_response(raw)
+
+        self.assertGreater(len(raw), 4096)
+        self.assertEqual(visible, raw)
+        self.assertLessEqual(step["projection"]["visible_tokens"], 4096)
+        self.assertFalse(step["projection"]["truncated"])
+        self.assertEqual(state["latest_observation"], visible)
+        self.assertEqual(state["latest_observation_raw"], raw)
+        self.assertFalse(state["terminate"])
+        self.assertFalse(state["infrastructure_invalid"])
+        self.assertEqual(state["observation_footer_failures"], 0)
+        self.assertIsNone(action_reject_reason("select_option", {"value": "blue"}, visible))
+
+    def test_over_budget_detail_is_projected_by_tokens_and_preserves_actions(self):
+        raw = self._detail(4000)
+        visible, state, step = self._project_tool_response(raw)
+
+        self.assertGreater(len(visible), 4096)
+        self.assertLessEqual((len(visible) + 3) // 4, 4096)
+        self.assertGreater(step["projection"]["raw_tokens"], 4096)
+        self.assertTrue(step["projection"]["truncated"])
+        self.assertTrue(step["projection"]["critical_footer_preserved"])
+        self.assertEqual(clickable_buttons(visible), clickable_buttons(raw))
+        self.assertEqual(state["latest_observation"], visible)
+        self.assertTrue(state["latest_observation_truncated"])
+        self.assertFalse(state["terminate"])
+        self.assertFalse(state["infrastructure_invalid"])
+
+    def test_unprojectable_action_footer_still_invalidates_trajectory(self):
+        raw = (
+            "Product\n\n搜索功能是否可用: False"
+            + '\n\n可点击的按钮: ["buy now", "' + "x" * 17000 + '"]'
+        )
+        visible, state, step = self._project_tool_response(raw)
+
+        self.assertTrue(state["terminate"])
+        self.assertTrue(state["infrastructure_invalid"])
+        self.assertEqual(state["termination_reason"], "observation_projection_failed")
+        self.assertIn("critical footer exceeds", state["error"])
+        self.assertEqual(state["observation_footer_failures"], 1)
+        self.assertNotIn("projection", step)
+        self.assertIn("trajectory is invalid", visible)
+
+
+class ToolParseRecoveryTest(unittest.TestCase):
+    def test_qwen_format_rules_reach_the_parent_before_tokenization(self):
+        async def run():
+            loop = object.__new__(ShoppingToolAgentLoop)
+            loop.tool_parser_name = "qwen3_coder"
+            messages = [{"role": "system", "content": "无参数工具必须传严格的 `{}`。"}]
+            data = SimpleNamespace(messages=messages)
+            async def pending(_loop, data, params):
+                self.assertIn("<function=prev_page>", data.messages[0]["content"])
+                self.assertNotIn("必须传严格的 `{}`", data.messages[0]["content"])
+                return AgentState.GENERATING
+            with patch.object(ToolAgentLoop, "_handle_pending_state", pending):
+                self.assertEqual(await loop._handle_pending_state(data, {}), AgentState.GENERATING)
+            self.assertIn("必须传严格的 `{}`", messages[0]["content"])
+        asyncio.run(run())
+
+    def _loop(self):
+        loop = object.__new__(ShoppingToolAgentLoop)
+        loop.context_compaction_enable = False
+        loop.context_window_tokens = 16384
+        loop.context_input_budget = 15360
+        loop.context_generation_reserve_tokens = 512
+        loop.context_safety_margin_tokens = 512
+        loop.response_length = 12288
+        loop.tokenizer = SimpleNamespace(decode=lambda ids: "<tool_call><function=search_products><parameter=query")
+        async def template(*args, **kwargs):
+            return [90, 91]
+        loop.apply_chat_template = template
+        return loop
+
+    def test_generation_respects_input_budget_without_compaction(self):
+        async def run():
+            loop = self._loop()
+            # A stricter input budget must be honored even with compaction off.
+            loop.context_input_budget = 10000
+            for size in (10000, 10001, 13904):
+                state = make_runtime_state(1, 35)
+                token = current_runtime_state.set(state)
+                data = SimpleNamespace(prompt_ids=[1] * size, response_mask=[], response_logprobs=[])
+                calls = []
+                async def generate(_loop, data, params, **kwargs):
+                    calls.append(params)
+                    return AgentState.GENERATING
+                try:
+                    with patch.object(ToolAgentLoop, "_handle_generating_state", generate):
+                        result = await loop._handle_generating_state(data, {})
+                    if size == 10000:
+                        self.assertEqual(result, AgentState.GENERATING)
+                        self.assertEqual(len(calls), 1)
+                    else:
+                        self.assertEqual(result, AgentState.TERMINATED)
+                        self.assertEqual(calls, [])
+                        self.assertTrue(state["infrastructure_invalid"])
+                        self.assertEqual(state["termination_reason"], "context_hard_limit_exceeded")
+                finally:
+                    current_runtime_state.reset(token)
+        asyncio.run(run())
+
+    def test_recovery_preserves_actor_tokens_and_masks_feedback_then_stops(self):
+        async def run():
+            loop = self._loop()
+            data = SimpleNamespace(prompt_ids=[1], response_ids=[], response_mask=[], response_logprobs=[], messages=[], user_turns=0, tool_calls=[])
+            state = make_runtime_state(1, 35)
+            token = current_runtime_state.set(state)
+            async def generate(_loop, data, params, **kwargs):
+                self.assertEqual(params["max_tokens"], 512)
+                data.response_ids = [2, 3]
+                data.prompt_ids += [2, 3]
+                data.response_mask += [1, 1]
+                data.response_logprobs += [-0.2, -0.3]
+                raise ToolCallParseError("incomplete_parameter")
+            try:
+                with patch.object(ToolAgentLoop, "_handle_generating_state", generate):
+                    self.assertEqual(await loop._handle_generating_state(data, {}), AgentState.GENERATING)
+                    self.assertEqual(data.prompt_ids, [1, 2, 3, 90, 91])
+                    self.assertEqual(data.response_mask, [1, 1, 0, 0])
+                    self.assertEqual(data.response_logprobs, [-0.2, -0.3, 0.0, 0.0])
+                    self.assertIsNone(state["error"])
+                    self.assertEqual(await loop._handle_generating_state(data, {}), AgentState.GENERATING)
+                    self.assertEqual(await loop._handle_generating_state(data, {}), AgentState.TERMINATED)
+                    self.assertEqual(data.user_turns, 2)
+                    self.assertEqual(state["error"], "tool_call_parse_error_limit")
+                    self.assertEqual(state["steps"], [])
+                    self.assertTrue(reward_breakdown(state)["sampling_invalid"])
+                    self.assertEqual(len(state["tool_parse_error_details"]), 3)
+            finally:
+                current_runtime_state.reset(token)
+        asyncio.run(run())
+
+    def test_valid_call_resets_consecutive_errors_and_respects_lower_token_limit(self):
+        async def run():
+            loop = self._loop()
+            state = make_runtime_state(1, 35)
+            state["consecutive_tool_parse_errors"] = 2
+            token = current_runtime_state.set(state)
+            async def generate(_loop, data, params, **kwargs):
+                self.assertEqual(params["max_tokens"], 32)
+                return AgentState.PROCESSING_TOOLS
+            try:
+                with patch.object(ToolAgentLoop, "_handle_generating_state", generate):
+                    data = SimpleNamespace(prompt_ids=[1], response_mask=[], response_logprobs=[])
+                    await loop._handle_generating_state(data, {"max_tokens": 32})
+                self.assertEqual(state["consecutive_tool_parse_errors"], 0)
+            finally:
+                current_runtime_state.reset(token)
+        asyncio.run(run())
 
 
 def make_tool(name):
@@ -171,7 +373,7 @@ class VerlAdapterRuntimeTest(unittest.TestCase):
     def test_runtime_state_has_no_hidden_goal_fields(self):
         state = make_runtime_state(task_id=2, max_steps=35)
         self.assertNotIn("goal", state)
-        self.assertNotIn("reward_detail", state)
+        self.assertIsNone(state["reward_detail"])
 
     def test_task_id_is_read_from_verl_extra_info(self):
         self.assertEqual(task_id_from_kwargs({"extra_info": {"task_id": 42}}), 42)
@@ -216,25 +418,30 @@ class VerlAdapterRuntimeTest(unittest.TestCase):
             self.assertTrue(state["terminate"])
             self.assertEqual(state["terminal_result"], {"done": True, "over": True})
             self.assertTrue(state["infrastructure_invalid"])
-            self.assertIsNone(state["reward_components"])
+            self.assertIsNone(state["reward_detail"])
             self.assertNotIn("hidden", str(state))
 
         asyncio.run(run())
 
-    def test_terminal_reward_components_are_validated_without_entering_tool_observation(self):
+    def test_terminal_reward_v3_is_validated_without_entering_tool_observation(self):
         class FakeEnv:
             def step(self, action):
                 return {
                     "instruction": "Goal: hidden answer",
                     "done": True,
                     "over": True,
-                    "reward": 0.6,
+                    "reward": 0.25,
                     "goal": {"secret": True},
                     "reward_detail": {
-                        "r_type": 1,
-                        "r_att": 1,
-                        "r_option": 0.5,
-                        "r_price": 1,
+                        "reward_version": "shopsimulator-reward-v3",
+                        "reward_type": "partial_alternative_purchase",
+                        "termination_reason": "partial_alternative_purchase",
+                        "reward_valid": True,
+                        "terminal_utility": 0.25,
+                        "purchase_success": False,
+                        "sampling_invalid": False,
+                        "hard_gates": {},
+                        "weighted_score": 0.5,
                         "hidden_answer": "do not retain",
                     },
                 }
@@ -255,8 +462,8 @@ class VerlAdapterRuntimeTest(unittest.TestCase):
             self.assertEqual(response.text, "Environment terminated.")
             self.assertFalse(state["infrastructure_invalid"])
             self.assertEqual(
-                state["reward_components"],
-                {"r_type": 1.0, "r_att": 1.0, "r_option": 0.5, "r_price": 1.0},
+                state["reward_detail"]["reward_type"],
+                "partial_alternative_purchase",
             )
             self.assertNotIn("hidden", str(state))
 
@@ -273,13 +480,16 @@ class VerlAdapterRuntimeTest(unittest.TestCase):
                     "termination_reason": "reward_unverifiable",
                     "reward_valid": False,
                     "reward_detail": {
-                        "reward_version": "unsupported-reward",
+                        "reward_version": "shopsimulator-reward-v3",
                         "reward_type": "reward_unverifiable",
                         "reward_valid": False,
                         "termination_reason": "reward_unverifiable",
                         "target_asin_match": False,
+                        "terminal_utility": 0.0,
+                        "purchase_success": False,
+                        "sampling_invalid": True,
                         "hard_gates": {
-                            "category": {"passed": True, "verifiable": True}
+                            "category": {"status": "pass", "passed": True, "verifiable": True}
                         },
                         "weighted_score": 0.0,
                     },
@@ -437,7 +647,7 @@ class VerlAdapterRuntimeTest(unittest.TestCase):
             self.assertEqual(state["action_attempt_after_truncation_count"], 3)
             self.assertEqual(
                 state["guard_rejection_reason_counts"],
-                {"asin_not_visible": 3},
+                {"click_not_in_previous_observation": 3},
             )
             self.assertIn("maximum", response.text)
 

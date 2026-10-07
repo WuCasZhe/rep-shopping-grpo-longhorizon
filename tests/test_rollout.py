@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from shopping_grpo.environment.actions import action_guard_tool_message
 from shopping_grpo.environment.client import ShopEnvironmentError
+from shopping_grpo.environment.observation import render_structured_observation
 from shopping_grpo.evaluation.rollout import (
     CollectionInfrastructureError,
     OpenAIChatClient,
@@ -18,6 +19,15 @@ from shopping_grpo.evaluation.rollout import (
     load_tasks,
     rollout_interrupted,
 )
+
+
+def search_observation():
+    return render_structured_observation({
+        "observation_version": "shopping-observation-v2",
+        "page_type": "search_results", "search_available": False,
+        "actions": ["100000000001"],
+        "products": [{"rank": 1, "asin": "100000000001", "title": "乳胶枕", "price": 20}],
+    })
 
 
 class FakeEnv:
@@ -32,7 +42,7 @@ class FakeEnv:
         self.actions.append(action)
         if action == "search[乳胶枕]":
             return {
-                "instruction": "results [SEP] 100000000001 [SEP] 乳胶枕",
+                "instruction": search_observation(),
                 "reward": 0.0,
                 "done": False,
             }
@@ -84,7 +94,7 @@ class GuardRecoveryEnv(FakeEnv):
         self.actions.append(action)
         if action == "search[乳胶枕]":
             return {
-                "instruction": "results [SEP] 100000000001 [SEP] 乳胶枕",
+                "instruction": search_observation(),
                 "reward": 0.0,
                 "done": False,
             }
@@ -275,7 +285,7 @@ class RolloutTest(unittest.TestCase):
             def step(self, action):
                 self.actions.append(action)
                 if action == "search[乳胶枕]":
-                    return {"instruction": "results [SEP] 100000000001", "reward": 0.0, "done": False}
+                    return {"instruction": search_observation(), "reward": 0.0, "done": False}
                 if action == "click[100000000001]":
                     return {
                         "instruction": 'detail\n\n可点击的按钮: ["满天星", "Description", "Buy Now"]',
@@ -334,7 +344,7 @@ class RolloutTest(unittest.TestCase):
             def step(self, action):
                 self.actions.append(action)
                 if action == "search[乳胶枕]":
-                    return {"instruction": "results [SEP] 100000000001", "reward": 0.0, "done": False}
+                    return {"instruction": search_observation(), "reward": 0.0, "done": False}
                 if action == "click[100000000001]":
                     return {
                         "instruction": 'detail\n\n可点击的按钮: ["满天星", "Buy Now"]',
@@ -815,7 +825,7 @@ class RolloutTest(unittest.TestCase):
             }
 
         client = OpenAIChatClient(
-            model="deepseek-v4-flash",
+            model="deepseek-flash",
             base_url="https://api.example.test/v1",
             api_key="secret",
             thinking=True,
@@ -831,7 +841,7 @@ class RolloutTest(unittest.TestCase):
         self.assertNotIn("top_p", captured["payload"])
         self.assertEqual(message["reasoning_content"], "先核对规格，再搜索。")
 
-    def test_openai_client_explicitly_disables_deepseek_v4_thinking(self):
+    def test_openai_client_explicitly_disables_deepseek_flash_thinking(self):
         captured = {}
 
         def transport(url, payload, headers, timeout):
@@ -839,7 +849,7 @@ class RolloutTest(unittest.TestCase):
             return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
 
         client = OpenAIChatClient(
-            model="deepseek-v4-flash",
+            model="deepseek-flash",
             base_url="https://opencode.ai/zen/go/v1",
             api_key="secret",
             thinking=False,
@@ -884,7 +894,7 @@ class RolloutTest(unittest.TestCase):
             return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
 
         client = OpenAIChatClient(
-            model="deepseek-v4-pro",
+            model="deepseek-flash",
             base_url="https://api.example.test/v1",
             api_key="secret",
             transport=transport,

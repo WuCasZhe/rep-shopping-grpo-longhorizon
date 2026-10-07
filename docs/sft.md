@@ -1,88 +1,91 @@
 # LoRA SFT
 
-## Purpose
+This repository's preparation and default launcher use one single-stage SFT
+recipe: `data/sft/train.jsonl` (800 rows) and `data/sft/validation.jsonl`
+(200 rows), followed by GRPO and the held-out evaluation.
+Training and validation task IDs must not overlap `data/evaluation/tasks.jsonl`.
 
-The base model can speak naturally but does not reliably follow
-ShopSimulator's action protocol. Supervised fine-tuning teaches the basic
-policy: issue legal tool calls, use observations as evidence, select product
-variants and terminate.
-
-## Inputs
-
-- Base model: `Qwen/Qwen3.5-2B`
-- Main data: `data/sft_pure_v4/all.jsonl` (1,192 rows)
-- Fixed curriculum manifest: `data/sft_curriculum/manifest.json`
-- Gradient rows: 1,073; development rows: 119; Final evaluation overlap: 0
-- Target: assistant tokens only; user and tool-observation tokens are masked
-
-The source and label hashes, exact task IDs, stage definitions, and review-only
-flags are frozen in the curriculum manifest. The older `data/sft/` split is
-kept only for reproducing the historical baseline.
+Logs stay on local storage. SwanLab is disabled by default; when explicitly
+enabled, its default mode is local and needs no API key.
 
 ## Run
 
-After `bash scripts/setup.sh`:
+After `bash scripts/setup.sh`, set `BASE_MODEL` to a local Qwen3.5-2B directory
+or use the default `Qwen/Qwen3.5-2B`, then run:
 
 ```bash
-# Check all six train/merge commands without loading a model.
-bash scripts/sft_curriculum.sh --dry-run
-
-# Run A -> B -> C on the server.
-bash scripts/sft_curriculum.sh --swanlab
+bash scripts/sft.sh
 ```
 
-The launcher trains a LoRA adapter and then merges it with the base model:
+This command executes training **and then merges the adapter**. It must only
+be run when both operations are authorized. It writes the adapter to
+`outputs/models/sft-lora` and the merged model to `outputs/models/sft-merged`.
+Override these with `SFT_ADAPTER_DIR` and `SFT_MERGED_DIR` if needed.
 
-```text
-outputs/models/sft-curriculum/stage-a/{adapter,merged}/
-outputs/models/sft-curriculum/stage-b/{adapter,merged}/
-outputs/models/sft-curriculum/stage-c/{adapter,merged}/
-```
-
-Default recipe:
+## Recipe
 
 | Setting | Value |
 |---|---|
-| Maximum sequence length | 24,576 |
-| Epochs | 1 per stage |
-| Per-device batch size | 1 |
+| Maximum sequence length | 16,384 |
+| Epochs | 3 |
+| Per-device train / validation batch | 1 / 1 |
 | Gradient accumulation | 8 |
-| Learning rate | `1e-4` -> `7e-5` -> `5e-5` |
+| Learning rate | `1e-4` |
 | LoRA rank / alpha / dropout | 16 / 32 / 0.05 |
 | Gradient checkpointing | enabled |
+| Liger fused loss | enabled by the default launcher |
 | Attention implementation | SDPA |
-| Saved epoch checkpoints | 3 |
+| Precision | automatic; BF16 preferred on supported CUDA devices |
+| Saved checkpoint limit | 3 |
 
-The long context is intentional: a training example includes the complete
-multi-turn interaction. Shortening it may truncate the terminal decision or the
-evidence that supports it.
+Only assistant tokens contribute to loss. User messages and environment
+observations are masked. Examples exceeding the sequence limit are dropped,
+not truncated; check the reported kept/dropped counts before interpreting the
+training results. Validation loss measures training health, not final success.
 
-Stage A learns the action protocol from 256 foundation rows. Stage B restarts a
-fresh LoRA on A's merged checkpoint and uses 799 cumulative constraint rows.
-Stage C does the same from B and uses all 1,073 training rows. Therefore simple
-skills receive three passes, constraint handling two, and long-horizon strategy
-one. Use `--start-stage b` after A is complete, or `--stop-after-stage b` for a
-bounded server run. A checkpoint interrupted inside a stage can be resumed
-with `--start-stage <stage> --resume-from-checkpoint <checkpoint-dir>`.
+With the current data and Qwen3.5-2B processor, the 16,384-token limit retains
+797 of 800 training rows and all 200 validation rows. The source data remains
+intact; the loader filters the three overlong training trajectories.
 
-## Evaluate
+## GRPO and evaluation
+
+The default GRPO launcher consumes `outputs/models/sft-merged`:
 
 ```bash
-bash scripts/serve_model.sh outputs/models/sft-curriculum/stage-c/merged
-bash scripts/evaluate.sh sft
+bash scripts/grpo.sh --dry-run
 ```
 
-Validation loss is a training-health signal, not the final model score. Select
-among stages using the 119-row development split and failure-type coverage.
-Run Final-200 Clean only after the recipe is frozen, so the final benchmark is
-not silently used for checkpoint selection.
+For another merged-model directory, pass `--model PATH` explicitly. The default
+launcher does not read a `GRPO_MODEL_PATH` shell override.
 
-## Output contract
+Once execution is authorized, serve the merged model and evaluate through the
+shared evaluation entry point. Strict success requires a complete
+`gold_purchase` terminal result with `reward_valid=true`.
 
-GRPO starts from the merged model, not directly from the adapter:
+## Training failure corrections
 
-```text
-GRPO_MODEL_PATH=outputs/models/sft-curriculum/stage-c/merged
+Prepare corrections from GRPO training diagnostics without starting training:
+
+```bash
+python scripts/prepare_training_repairs.py \
+  --diagnostics outputs/models/grpo/training_diagnostics.jsonl \
+  --tokenizer outputs/models/sft-merged \
+  --output-dir outputs/training-repairs \
+  --replay-limit 32
 ```
 
-This boundary keeps the GRPO launcher independent of the SFT trainer process.
+The command excludes frozen evaluation, GRPO validation and SFT validation tasks,
+deduplicates generation records, and replays successful action sequences for
+training tasks with observed specification or page-state failures. When a failed
+rollout chose another visible value on the same product's specification axis,
+the replay can include that mistake followed by its correction. The mistaken
+action and preceding assistant turns have `trainable: false`; the SFT loader
+retains them as context with all labels masked. Only the recovery is supervised.
+No hidden target is used to select replay actions.
+
+Only complete, valid Reward v3 `gold_purchase` replays enter
+`sft-corrections.jsonl`. Raw replays and source plans are audit artifacts and must
+not be used as SFT inputs. Mix the correction rows into the existing training
+split; `sft-train.jsonl` contains that mix and validation stays unchanged.
+The accompanying `grpo-train.parquet` preserves
+all source tasks with bounded multiplicities based on valid group variation.
